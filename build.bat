@@ -28,7 +28,17 @@ if not exist %OUT% mkdir %OUT%
 
 rem /permissive- and /Zc:__cplusplus so __cplusplus reports the truth; without
 rem the second, MSVC still claims C++98 regardless of /std.
-set CXXFLAGS=/nologo /std:c++17 /permissive- /Zc:__cplusplus /EHsc /W4 /MT /O2 /GS /DUNICODE /D_UNICODE /DNDEBUG /utf-8
+rem
+rem NOMINMAX is not optional. windows.h defines min and max as macros, so
+rem std::min(a, b) expands to std::(a) < (b) ? ... and the compiler reports it
+rem as "illegal token on right side of ::" a hundred times over, in files that
+rem look perfectly correct. CMakeLists.txt sets it too; the two must agree or
+rem one build path fails while the other passes.
+rem
+rem WIN32_LEAN_AND_MEAN trims the rarely-used parts of windows.h. The modules
+rem that need what it excludes -- mmsystem.h in alerts.cpp and westminster.cpp
+rem -- include it explicitly, which is the better habit anyway.
+set CXXFLAGS=/nologo /std:c++17 /permissive- /Zc:__cplusplus /EHsc /W4 /MT /O2 /GS /DUNICODE /D_UNICODE /DNOMINMAX /DWIN32_LEAN_AND_MEAN /DNDEBUG /utf-8
 
 rem /W4 with two exclusions:
 rem   4100 unreferenced formal parameter -- window procedures take four

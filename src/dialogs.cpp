@@ -337,11 +337,11 @@ INT_PTR CALLBACK NumberProc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp) {
                         return TRUE;
                     }
                     if (parsed < ctx->minValue || parsed > ctx->maxValue) {
-                        const std::wstring msg =
+                        const std::wstring outOfRange =
                             Format(L"Enter a number between %s and %s.",
                                    FormatNumber(ctx->minValue, ctx->wholeNumbers).c_str(),
                                    FormatNumber(ctx->maxValue, ctx->wholeNumbers).c_str());
-                        ::MessageBoxW(dlg, msg.c_str(), ctx->title->c_str(),
+                        ::MessageBoxW(dlg, outOfRange.c_str(), ctx->title->c_str(),
                                       MB_OK | MB_ICONWARNING);
                         ::SetFocus(::GetDlgItem(dlg, kIdEdit1));
                         return TRUE;
