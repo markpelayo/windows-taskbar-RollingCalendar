@@ -70,7 +70,7 @@ Initial release. A C++/Win32 port of [macos-menubar-RollingCalendar](https://git
 
 ### Not yet verified on hardware
 
-This release compiles cleanly as one static binary, and CI confirms it launches, stays up for several seconds and closes cleanly. It has not been run on a physical machine by the author, and no configuration has been observed in use.
+This release has not been run on a physical machine by the author, and no configuration has been observed in use. If a binary is attached below, it is the one CI produced: the workflow compiles both build paths, then launches the executable, waits several seconds and confirms it is still running before packaging anything. That is the only evidence there is. It rules out a failure to compile or link and a crash on startup. It says nothing at all about whether the strip appears in the right place, whether the timeline is drawn correctly, or whether any of the sound features work.
 
 Specifically unverified: **Windows 10 of any build, fractional display scaling, taskbars docked to the left or right edge, and multi-monitor setups.** The taskbar embedding also depends on undocumented shell behaviour that Microsoft has never committed to and may change at any time.
 

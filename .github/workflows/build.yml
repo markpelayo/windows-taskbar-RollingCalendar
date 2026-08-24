@@ -76,4 +76,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: RollingCalendar-windows-x64.zip
-          generate_release_notes: true
+          body_path: CHANGELOG.md
+          # Marked as a pre-release deliberately. Everything below the build
+          # step proves is that the code compiles and survives startup on a
+          # machine with no real taskbar. Nobody has yet seen the strip appear,
+          # so calling this a finished release would be claiming evidence that
+          # does not exist. Promote it in the GitHub UI once it has been run.
+          prerelease: true
