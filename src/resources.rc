@@ -1,0 +1,44 @@
+// resources.rc — the icon and the version block, and nothing else.
+//
+// The dialogs are built at runtime from in-memory templates rather than
+// declared here, so adding a field to one does not mean editing a resource
+// file, a header and a switch statement in three places.
+
+#include <windows.h>
+#include "resource.h"
+
+IDI_APPICON ICON "app.ico"
+
+VS_VERSION_INFO VERSIONINFO
+    FILEVERSION     1,0,0,0
+    PRODUCTVERSION  1,0,0,0
+    FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+#ifdef _DEBUG
+    FILEFLAGS       VS_FF_DEBUG
+#else
+    FILEFLAGS       0x0L
+#endif
+    FILEOS          VOS_NT_WINDOWS32
+    FILETYPE        VFT_APP
+    FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName",      "Mark Pelayo"
+            VALUE "FileDescription",  "Rolling Calendar"
+            VALUE "FileVersion",      "1.0.0.0"
+            VALUE "InternalName",     "RollingCalendar"
+            VALUE "LegalCopyright",   "MIT licensed. Copyright (c) Mark Pelayo"
+            VALUE "OriginalFilename", "RollingCalendar.exe"
+            VALUE "ProductName",      "Rolling Calendar"
+            VALUE "ProductVersion",   "1.0.0.0"
+            VALUE "Comments",         "Today's calendar as a timeline in the Windows taskbar"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

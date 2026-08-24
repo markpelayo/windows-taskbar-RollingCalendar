@@ -1,0 +1,79 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The MSVC environment has to be set up explicitly; the runner has the
+      # toolchain installed but not on PATH.
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      # build.bat is the canonical build. Running it here rather than a
+      # separate CMake invocation means CI checks the thing contributors
+      # actually run, not an approximation of it.
+      - name: Build
+        shell: cmd
+        run: build.bat
+
+      # A second pass through CMake, because the file is in the repository and
+      # a build file nobody exercises is a build file that has already broken.
+      - name: Build via CMake
+        shell: cmd
+        run: |
+          cmake -B build-cmake -S . -A x64
+          cmake --build build-cmake --config Release
+
+      - name: Check the binary runs
+        shell: pwsh
+        run: |
+          # It has no console output and no exit path other than the menu, so
+          # the only useful check is that it starts, stays up for a few
+          # seconds and can be closed. A crash on launch -- a missing import,
+          # a bad manifest -- shows up here.
+          $p = Start-Process -FilePath build\RollingCalendar.exe -PassThru
+          Start-Sleep -Seconds 8
+          if ($p.HasExited) {
+            Write-Error "The app exited on its own with code $($p.ExitCode)."
+            exit 1
+          }
+          Stop-Process -Id $p.Id -Force
+          Write-Host "Launched, stayed up, closed cleanly."
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item build\RollingCalendar.exe dist\
+          Copy-Item README.md, LICENSE, DISCLAIMER.md dist\
+          Compress-Archive -Path dist\* -DestinationPath RollingCalendar-windows-x64.zip -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RollingCalendar-windows-x64
+          path: RollingCalendar-windows-x64.zip
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: RollingCalendar-windows-x64.zip
+          generate_release_notes: true

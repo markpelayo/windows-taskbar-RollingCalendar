@@ -1,0 +1,30 @@
+build/
+build-cmake/
+dist/
+out/
+*.zip
+
+# MSVC leftovers
+*.obj
+*.res
+*.pdb
+*.ilk
+*.exe
+*.idb
+*.tlog
+*.log
+.vs/
+CMakeFiles/
+CMakeCache.txt
+*.vcxproj*
+*.sln
+
+# Editors
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Left behind when a mounted filesystem deletes a file that is still open.
+.fuse_hidden*

@@ -1,0 +1,21 @@
+# Normalise line endings on the way in, check out what the platform expects.
+* text=auto
+
+# These are only ever run by cmd.exe, which is happier with CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Sources are LF in the repository regardless of platform.
+*.cpp text eol=lf
+*.h   text eol=lf
+*.md  text eol=lf
+*.yml text eol=lf
+*.txt text eol=lf
+
+# The resource compiler and the manifest reader both cope with either, but
+# keeping them CRLF matches every other Windows toolchain output.
+*.rc       text eol=crlf
+*.manifest text eol=crlf
+
+*.ico binary
+*.png binary
