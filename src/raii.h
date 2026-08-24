@@ -10,6 +10,12 @@
 #pragma once
 
 #include <windows.h>
+// objbase.h for CoInitializeEx, CoUninitialize and IUnknown, which ComScope
+// and ComPtr below need. windows.h does not supply them under
+// WIN32_LEAN_AND_MEAN, and a header that only compiles when its includer
+// happened to pull in sapi.h or taskschd.h first is a trap rather than a
+// header.
+#include <objbase.h>
 
 #include <utility>
 
