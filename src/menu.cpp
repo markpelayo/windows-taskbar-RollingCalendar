@@ -665,6 +665,7 @@ void RestoreEverythingFlow(App& app, HWND owner) {
         L"  - the strip's size, time range and labels\n"
         L"  - every saved calendar link\n"
         L"  - imported keyword colours\n"
+        L"  - Ending Soon Flash\n"
         L"  - alerts, the chime and Sound Hours\n"
         L"  - Run at Startup and Debug Time\n"
         L"\nOnly saved links are forgotten - your calendars themselves are untouched.";
@@ -961,6 +962,62 @@ UniqueMenu BuildAlertVoice() {
     return m;
 }
 
+// ---------------------------------------------------------- ending soon flash
+
+// One, two and five minutes. Ten was offered briefly in the original and
+// dropped: a name blinking for ten minutes stops being a warning and becomes
+// the strip's normal appearance.
+const int kFlashChoices[] = {60, 120, 300};
+
+// "90 sec", "5 min", "1.5 min". Whole minutes read as minutes; anything below
+// one minute reads in seconds, because a custom 90 seconds rounding to "2 min"
+// would be a lie about the setting the user just typed.
+std::wstring FlashPhrase(double seconds) {
+    if (seconds <= 0) return L"Off";
+    if (seconds < 60) return Format(L"%g sec", seconds);
+    const double minutes = seconds / 60.0;
+    if (std::fabs(minutes - std::floor(minutes)) < 0.001) {
+        return Format(L"%d min", static_cast<int>(std::lround(minutes)));
+    }
+    return Format(L"%g min", minutes);
+}
+
+std::wstring FlashMenuTitle() {
+    const double s = Cfg().endingFlashSeconds;
+    if (s <= 0) return L"Ending Soon Flash: Off";
+    return L"Ending Soon Flash: " + FlashPhrase(s) + L" before the end";
+}
+
+UniqueMenu BuildEndingSoonFlash() {
+    UniqueMenu m(::CreatePopupMenu());
+    const double current = Cfg().endingFlashSeconds;
+
+    AddText(m.get(), IDM_FLASH_OFF, L"Off", current <= 0, true, true);
+    AddSeparator(m.get());
+
+    bool matched = false;
+    for (size_t i = 0; i < std::size(kFlashChoices); ++i) {
+        const double preset = static_cast<double>(kFlashChoices[i]);
+        const bool on = std::fabs(current - preset) < 0.01;
+        if (on) matched = true;
+        AddText(m.get(), IDM_FLASH_BASE + static_cast<UINT>(i),
+                FlashPhrase(preset) + L" before the end", on, true, true);
+    }
+
+    // A custom value that is not one of the presets gets its own ticked row, so
+    // the setting in force is never invisible.
+    if (current > 0 && !matched) {
+        AddSeparator(m.get());
+        AddText(m.get(), IDM_FLASH_CUSTOM, FlashPhrase(current) + L" before the end", true, true,
+                true);
+    }
+
+    AddSeparator(m.get());
+    AddText(m.get(), IDM_FLASH_CUSTOM, L"Add Custom...");
+    AddNote(m.get(), L"The name blinks red; Reset Strip Settings leaves this alone");
+    return m;
+}
+
 // Which display's taskbar the strip lives in.
 //
 // Windows only creates a taskbar on a secondary display when "Show my taskbar
@@ -1160,22 +1217,29 @@ UniqueMenu Build(App& app, const std::vector<DayRow>& rows) {
     }
     AddSeparator(m.get());
 
-    // 9-10: where the day came from.
+    // 9-13: what the blocks are -- where they come from, what colour they are,
+    // and how loudly the one you are in says it is nearly over. Keyword Colors
+    // used to sit below with the geometry; it belongs here, because it is about
+    // the events rather than the timeline's proportions.
     AddText(m.get(), IDM_DEMO_CALENDAR, L"Demo Calendar", cfg.demoMode);
     if (cfg.profiles.empty()) {
         AddText(m.get(), IDM_ADD_CALENDAR, L"Add Calendar...");
     } else {
         AddSubmenu(m.get(), BuildSavedCalendars(), L"Saved Calendars");
     }
+    AddSubmenu(m.get(), BuildKeywordColors(), L"Keyword Colors");
+    AddSubmenu(m.get(), BuildEndingSoonFlash(), FlashMenuTitle(), cfg.isFlashing());
     AddSeparator(m.get());
 
-    // 12-17: how the strip looks.
+    // 15-19: geometry, and nothing but geometry -- which is what makes Reset
+    // Strip Settings a safe click. Renamed from "Restore Strip Settings": two
+    // rows in one menu both starting with "Restore" read as the same action
+    // twice, and the heavier of the two is the one further down.
     AddSubmenu(m.get(), BuildTimeRange(), L"Time Range");
     AddSubmenu(m.get(), BuildTimelineWidth(), L"Timeline Width");
     AddSubmenu(m.get(), BuildLabels(), L"Labels");
     AddSubmenu(m.get(), BuildLabelLength(dc), L"Label Length");
-    AddSubmenu(m.get(), BuildKeywordColors(), L"Keyword Colors");
-    AddText(m.get(), IDM_RESTORE_STRIP, L"Restore Strip Settings", false,
+    AddText(m.get(), IDM_RESTORE_STRIP, L"Reset Strip Settings", false,
             !cfg.isAppearanceDefault());
     AddSeparator(m.get());
 
@@ -1403,6 +1467,29 @@ bool Invoke(App& app, HWND owner, UINT id) {
         case IDM_REFRESH_NOW:
             app.Refresh();
             return true;
+
+        case IDM_FLASH_OFF:
+            cfg.endingFlashSeconds = 0;
+            cfg.Save();
+            AfterAppearanceChange(app);
+            return true;
+
+        case IDM_FLASH_CUSTOM: {
+            // Replaces the value rather than joining a set. Unlike alert lead
+            // times, where ten minutes before and one minute before are both
+            // useful, there is only one answer to how long a name should blink.
+            double minutes = cfg.isFlashing() ? cfg.endingFlashSeconds / 60.0 : 3.0;
+            if (!dialogs::NumberInput(owner, L"Ending Soon Flash",
+                                      L"How long before a block ends should its name start "
+                                      L"flashing? Minutes, from 0.25 to 60.",
+                                      0.25, 60.0, false, &minutes)) {
+                return true;
+            }
+            cfg.endingFlashSeconds = minutes * 60.0;
+            cfg.Save();
+            AfterAppearanceChange(app);
+            return true;
+        }
 
         case IDM_MONITOR_AUTO:
             // Back to the primary display, and the dragged position goes with
@@ -1656,6 +1743,15 @@ bool Invoke(App& app, HWND owner, UINT id) {
         return true;   // a listing, not a command
     }
 
+    if (id >= IDM_FLASH_BASE && id < IDM_MONITOR_BASE) {
+        const size_t index = id - IDM_FLASH_BASE;
+        if (index >= std::size(kFlashChoices)) return false;
+        cfg.endingFlashSeconds = static_cast<double>(kFlashChoices[index]);
+        cfg.Save();
+        AfterAppearanceChange(app);
+        return true;
+    }
+
     if (id >= IDM_MONITOR_BASE && id < IDM_DAYROW_BASE) {
         const size_t index = id - IDM_MONITOR_BASE;
         const std::vector<TaskbarInfo> bars = EnumerateTaskbars();
@@ -1671,7 +1767,7 @@ bool Invoke(App& app, HWND owner, UINT id) {
         return true;
     }
 
-    if (id >= IDM_STARTUP_DELAY_BASE && id < IDM_MONITOR_BASE) {
+    if (id >= IDM_STARTUP_DELAY_BASE && id < IDM_FLASH_BASE) {
         const size_t index = id - IDM_STARTUP_DELAY_BASE;
         if (index >= std::size(kStartupDelays)) return false;
         cfg.startupDelay = kStartupDelays[index];

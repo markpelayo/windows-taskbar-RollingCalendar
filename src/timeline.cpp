@@ -84,6 +84,11 @@ constexpr int kTrackInset = 2;       // minimum vertical clearance above and bel
 
 // Height of the capsule band in logical px, chosen to match a taskbar icon.
 constexpr int kBlockHeight = 24;
+
+// How much larger than the shell's menu font the strip's text is drawn. Applies
+// only when titleFontSize has not been set explicitly, so an exact size in
+// points still means exactly that.
+constexpr double kFontBoost = 1.17;
 constexpr int kBlockOvershoot = 12;  // how far a long block may run past the strip
 constexpr int kMinBlockWidth = 3;
 constexpr int kMinAvailable = 12;    // below this a name is dropped, not truncated
@@ -137,6 +142,7 @@ uint64_t SettingsFingerprint() {
     mixBool(c.showNextDuration);
     mixBool(Clock::IsSimulating());
     mixDouble(c.urgentSeconds);
+    mixDouble(c.endingFlashSeconds);
     return h;
 }
 
@@ -310,8 +316,8 @@ struct Timeline::Impl {
         label.width = 0;
         if (label.segments.empty()) return;
 
-        const bool urgent = label.urgent;
-        const auto boldOf = [urgent](const LabelSegment& s) { return s.bold || urgent; };
+        const bool shouting = label.shouting;
+        const auto boldOf = [shouting](const LabelSegment& s) { return s.bold || shouting; };
 
         size_t nameIndex = label.segments.size();
         for (size_t i = 0; i < label.segments.size(); ++i) {
@@ -325,7 +331,7 @@ struct Timeline::Impl {
             const int count = static_cast<int>(label.segments.size());
             const int spacing =
                 (count > 1)
-                    ? TextWidth(std::wstring(static_cast<size_t>(count - 1), L' '), urgent)
+                    ? TextWidth(std::wstring(static_cast<size_t>(count - 1), L' '), shouting)
                     : 0;
 
             int fixed = 0;
@@ -350,7 +356,7 @@ struct Timeline::Impl {
         int total = 0;
         for (const auto& seg : label.segments) total += SegmentWidth(seg, boldOf(seg));
         if (count > 1) {
-            total += TextWidth(std::wstring(static_cast<size_t>(count - 1), L' '), urgent);
+            total += TextWidth(std::wstring(static_cast<size_t>(count - 1), L' '), shouting);
         }
         label.width = std::min(total + 1, cap);
     }
@@ -375,7 +381,23 @@ struct Timeline::Impl {
         GutterLabel& left = frame.left;
         left = GutterLabel();
         const double remaining = haveCurrent ? static_cast<double>(current.end - now) : 0.0;
-        left.urgent = haveCurrent && remaining <= cfg.urgentSeconds;
+        // Two windows, one colour. The urgent warning at two minutes is steady
+        // red; Ending Soon Flash blinks for however long it is set to. When
+        // both are open the flash wins, because a blink that stopped blinking
+        // for the last two minutes -- which is what an earlier version of the
+        // original did -- means choosing a one-minute window never blinks at
+        // all.
+        const bool urgent = haveCurrent && remaining <= cfg.urgentSeconds;
+        const bool flashing =
+            haveCurrent && cfg.isFlashing() && remaining <= cfg.endingFlashSeconds;
+
+        left.shouting = urgent || flashing;
+
+        // The blink phase comes from the clock the strip already reads once a
+        // second, so there is no second timer and no extra wakeup. The integer
+        // second is already part of the label cache key, which is why this
+        // costs nothing at all.
+        left.lit = !flashing || ((now % 2) == 0);
 
         if (Clock::IsSimulating()) {
             // Red, bold, and flanked by exclamation marks. It has to be
@@ -445,11 +467,11 @@ struct Timeline::Impl {
                    COLORREF colour) {
         if (label.segments.empty()) return;
 
-        const bool urgent = label.urgent;
-        const auto boldOf = [urgent](const LabelSegment& s) { return s.bold || urgent; };
+        const bool shouting = label.shouting;
+        const auto boldOf = [shouting](const LabelSegment& s) { return s.bold || shouting; };
 
         const int count = static_cast<int>(label.segments.size());
-        const int spaceWidth = TextWidth(L" ", urgent);
+        const int spaceWidth = TextWidth(L" ", shouting);
 
         int total = 0;
         for (const auto& seg : label.segments) total += SegmentWidth(seg, boldOf(seg));
@@ -690,7 +712,15 @@ void Timeline::UpdateFonts(int dpi) {
         // SystemParametersInfoW reports at the system DPI, which for a
         // per-monitor-aware process is 96 whatever monitor the taskbar is on,
         // so the shell's own size has to be scaled by hand.
+        //
+        // And then scaled up again. The shell's menu font is sized for menus,
+        // which are read at rest with the pointer already on them; the strip is
+        // read at a glance out of the corner of an eye, from further away, and
+        // at the same size it is legible rather than readable. A sixth larger
+        // is the smallest step that changes that.
         lf.lfHeight = ::MulDiv(lf.lfHeight, dpi_, 96);
+        lf.lfHeight = static_cast<LONG>(
+            std::lround(static_cast<double>(lf.lfHeight) * kFontBoost));
     }
     lf.lfQuality = CLEARTYPE_QUALITY;
 
@@ -860,7 +890,7 @@ void Timeline::Paint(HDC dc, const RECT& bounds) {
     if (leftWidth > 0) {
         RECT area{0, 0, leftWidth, height};
         im.DrawLabel(back, im.frame.left, area, true,
-                     im.frame.left.urgent ? kSystemRed : textColour);
+                     (im.frame.left.shouting && im.frame.left.lit) ? kSystemRed : textColour);
     }
     if (rightWidth > 0) {
         RECT area{width - rightWidth, 0, width, height};

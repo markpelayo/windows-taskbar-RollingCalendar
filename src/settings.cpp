@@ -241,6 +241,11 @@ void Settings::Load() {
     // ---- hidden settings -------------------------------------------------
     nowLineWidth = ini.Positive(L"hidden", L"nowLineWidth", 4);
     urgentSeconds = ini.Positive(L"hidden", L"urgentSeconds", 120);
+    // Zero is a legitimate stored value here -- it means off -- so this cannot
+    // use Positive(), which treats zero as "absent, use the default".
+    endingFlashSeconds = ini.Number(L"strip", L"endingFlashSeconds", 0);
+    if (!(endingFlashSeconds > 0)) endingFlashSeconds = 0;      // also catches NaN
+    if (endingFlashSeconds > 3600) endingFlashSeconds = 3600;
     solidBlocks = ini.Bool(L"hidden", L"solidBlocks", true);
     blockGap = ini.Positive(L"hidden", L"blockGap", 1);
     titleFontSize = ini.Positive(L"hidden", L"titleFontSize", 0);
@@ -420,6 +425,7 @@ void Settings::Save() {
     AppendBool(&out, L"showNowTimeLeft", showNowTimeLeft);
     AppendBool(&out, L"showNextName", showNextName);
     AppendBool(&out, L"showNextDuration", showNextDuration);
+    AppendNumber(&out, L"endingFlashSeconds", endingFlashSeconds);
     AppendLine(&out, L"");
 
     AppendLine(&out, L"[hidden]");
@@ -590,6 +596,11 @@ bool Settings::isEverythingDefault() const {
     if (!(soundHours[0] == SoundWindow{690, 270})) return false;
 
     if (runAtStartup || startupDelay != 20) return false;
+
+    // Ending Soon Flash counts here but deliberately not in
+    // isAppearanceDefault(). Reset Strip Settings resets geometry; a warning
+    // you rely on is not geometry, and only Restore Defaults takes it.
+    if (isFlashing()) return false;
 
     if (debugOffset != 0) return false;
 

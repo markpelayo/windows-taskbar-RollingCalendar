@@ -61,6 +61,16 @@ public:
     // ---- hidden settings (file only, no menu) --------------------------
     double nowLineWidth = 4;
     double urgentSeconds = 120;
+
+    // Ending Soon Flash. How long before a block ends its name starts blinking
+    // red, in seconds. 0 is off, which is the default.
+    //
+    // This is a *warning*, not a piece of geometry, which is why Reset Strip
+    // Settings deliberately leaves it alone and only Restore Defaults clears
+    // it. A click aimed at the timeline's proportions should not silently turn
+    // off the thing telling you a meeting is about to end.
+    double endingFlashSeconds = 0;
+    bool isFlashing() const { return endingFlashSeconds > 0; }
     COLORREF unmatchedColor = RGB(0x8E, 0x8E, 0x93);
     bool solidBlocks = true;
     double blockGap = 1;

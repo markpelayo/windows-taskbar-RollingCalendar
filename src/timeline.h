@@ -37,7 +37,13 @@ struct LabelSegment {
 
 struct GutterLabel {
     std::vector<LabelSegment> segments;
-    bool urgent = false;      // whole label drawn red and bold
+    // Colour and weight diverge, which is why this is two flags rather than
+    // one. `shouting` is true for the whole of the urgent window or the Ending
+    // Soon Flash window and sets the weight, changing exactly once so the label
+    // cannot jitter or resize as it blinks. `lit` is the blink phase and is
+    // always true unless the flash is running.
+    bool shouting = false;
+    bool lit = true;
     int width = 0;            // measured, capped at maxLabelWidth
     bool empty() const { return segments.empty(); }
 };
