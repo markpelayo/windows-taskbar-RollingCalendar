@@ -249,6 +249,8 @@ void Settings::Load() {
     if (hostOverride < 0 || hostOverride > 3) hostOverride = 0;
     pastFade = ini.Number(L"hidden", L"pastFade", 0);
     if (pastFade < 0.0 || pastFade >= 1.0) pastFade = 0;   // 1.0 would be pure white
+    blockHeight = ini.Number(L"hidden", L"blockHeight", 0);
+    if (blockHeight < 0.0 || blockHeight > 200.0) blockHeight = 0;
 
     // Zero is a legitimate stored value here -- it selects a full capsule -- so
     // this one clamps rather than rejecting.
@@ -428,6 +430,7 @@ void Settings::Save() {
     AppendText(&out, L"dayAnchorKeyword", dayAnchorKeyword);
     AppendNumber(&out, L"hostOverride", hostOverride);
     AppendNumber(&out, L"pastFade", pastFade);
+    AppendNumber(&out, L"blockHeight", blockHeight);
     AppendLine(&out, L"");
 
     AppendLine(&out, L"[calendar]");

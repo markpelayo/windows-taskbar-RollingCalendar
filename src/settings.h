@@ -85,6 +85,12 @@ public:
     // the wallpaper behind the taskbar looks like.
     double pastFade = 0;
 
+    // Height of the capsule band in logical px. 0 means the built-in value,
+    // chosen to match a taskbar icon so the strip sits alongside them rather
+    // than filling the bar. Tunable for a taskbar that has been made larger or
+    // smaller than the default.
+    double blockHeight = 0;
+
     // ---- calendar source ----------------------------------------------
     std::wstring calendarUrl;
     std::vector<CalendarProfile> profiles;

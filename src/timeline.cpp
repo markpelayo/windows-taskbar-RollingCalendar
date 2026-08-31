@@ -71,8 +71,15 @@ constexpr double kPastFadeLight = 0.68;
 constexpr double kOutlinePast = 0.18;
 constexpr double kOutlineFuture = 0.32;
 
-constexpr int kInnerGap = 8;         // logical px between a gutter and the strip
-constexpr int kTrackInset = 2;       // vertical clearance above and below blocks
+// Logical px between a gutter and the strip. Wider than it looks like it needs
+// to be: the capsules are solid blocks of colour and text set close against
+// them reads as attached to the one it happens to be touching.
+constexpr int kInnerGap = 12;
+
+constexpr int kTrackInset = 2;       // minimum vertical clearance above and below blocks
+
+// Height of the capsule band in logical px, chosen to match a taskbar icon.
+constexpr int kBlockHeight = 24;
 constexpr int kBlockOvershoot = 12;  // how far a long block may run past the strip
 constexpr int kMinBlockWidth = 3;
 constexpr int kMinAvailable = 12;    // below this a name is dropped, not truncated
@@ -487,6 +494,20 @@ struct Timeline::Impl {
         const double stripWidth = static_cast<double>(RectWidth(strip));
         if (stripWidth <= 0.0) return;
 
+        // Clip everything to the strip.
+        //
+        // A block longer than the visible window is drawn overshooting both
+        // ends, so that its rounded cap falls outside the strip and the edge
+        // reads as flat -- which is the point: a curved end means the block
+        // starts or finishes there, and a block still running when it leaves
+        // the window has not finished. Without this clip the left-hand cap
+        // landed inside the widget and drew a rounded end, while the right-hand
+        // one fell off the back buffer and was cut flat. Rounded at one end,
+        // square at the other, saying two different things about the same
+        // block.
+        DcStateGuard clipState(dc);
+        ::IntersectClipRect(dc, strip.left, strip.top, strip.right, strip.bottom);
+
         const double windowSeconds = std::max(1.0, cfg.windowMinutes * 60.0);
         const Seconds half = static_cast<Seconds>(windowSeconds / 2.0);
         const Seconds windowStart = now - half;
@@ -599,9 +620,18 @@ struct Timeline::Impl {
         }
     }
 
-    void DrawNowLine(HDC dc, const RECT& strip, bool dark, COLORREF background) {
+    void DrawNowLine(HDC dc, const RECT& strip, const RECT& track, bool dark,
+                     COLORREF background) {
         const LONG lineWidth = std::max(1, Scale(Cfg().nowLineWidth, dpi));
         const LONG centre = static_cast<LONG>(std::lround((strip.left + strip.right) / 2.0));
+
+        // The line is measured against the capsule band, not the whole strip,
+        // with a small overhang at each end. Running it the full height of the
+        // widget made it a divider through the gutters; overhanging the band
+        // slightly keeps it reading as a marker on the timeline.
+        const LONG overhang = std::max<LONG>(1, Scale(3, dpi));
+        const LONG top = std::max(strip.top, track.top - overhang);
+        const LONG bottom = std::min(strip.bottom, track.bottom + overhang);
 
         DcStateGuard state(dc);
         ::IntersectClipRect(dc, strip.left, strip.top, strip.right, strip.bottom);
@@ -610,12 +640,11 @@ struct Timeline::Impl {
         // capsule. Its 50% alpha is emulated by blending against the taskbar
         // background -- see the note at the top of this file about GDI.
         SetHalo(Blend(background, dark ? RGB(0, 0, 0) : RGB(255, 255, 255), 0.5));
-        RECT halo{centre - lineWidth / 2 - 1, strip.top,
-                  centre - lineWidth / 2 - 1 + lineWidth + 2, strip.bottom};
+        RECT halo{centre - lineWidth / 2 - 1, top, centre - lineWidth / 2 - 1 + lineWidth + 2,
+                  bottom};
         ::FillRect(dc, &halo, haloBrush.get());
 
-        RECT line{centre - lineWidth / 2, strip.top, centre - lineWidth / 2 + lineWidth,
-                  strip.bottom};
+        RECT line{centre - lineWidth / 2, top, centre - lineWidth / 2 + lineWidth, bottom};
         ::FillRect(dc, &line, redBrush.get());
     }
 };
@@ -799,14 +828,29 @@ void Timeline::Paint(HDC dc, const RECT& bounds) {
     if (leftWidth > 0) strip.left = leftWidth + gap;
     if (rightWidth > 0) strip.right = std::max(strip.left + 1, width - rightWidth - gap);
 
+    // The capsule band is sized to sit alongside the taskbar's icons rather
+    // than to fill the bar. A block as tall as the taskbar is legible but looks
+    // like a banner pasted over the shell; the same block at icon height reads
+    // as another thing living in the tray, which is what it is.
+    //
+    // Icon height is not a value Windows will tell you -- SM_CYSMICON is the
+    // 16 px notification-area icon, not the larger pinned-app icon -- so it is
+    // taken as a logical constant scaled to the DPI, clamped to whatever the
+    // bar can actually give, and left tunable for a taskbar that has been
+    // resized.
     RECT track = strip;
-    const LONG inset = Scale(kTrackInset, dpi_);
+    const LONG stripHeight = RectHeight(strip);
+    const LONG wanted = std::max<LONG>(
+        1, Scale(Cfg().blockHeight > 0 ? Cfg().blockHeight : kBlockHeight, dpi_));
+    const LONG minInset = Scale(kTrackInset, dpi_);
+    const LONG bandHeight = std::min(wanted, std::max<LONG>(1, stripHeight - 2 * minInset));
+    const LONG inset = std::max(minInset, (stripHeight - bandHeight) / 2);
     track.top += inset;
     track.bottom -= inset;
     if (track.bottom <= track.top) track = strip;
 
     im.DrawBlocks(back, events_, strip, track, now, dark, background);
-    im.DrawNowLine(back, strip, dark, background);
+    im.DrawNowLine(back, strip, track, dark, background);
 
     const COLORREF textColour = TaskbarTextColor();
     if (leftWidth > 0) {
