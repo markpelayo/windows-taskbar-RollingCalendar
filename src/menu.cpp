@@ -700,6 +700,10 @@ void RestoreEverythingFlow(App& app, HWND owner) {
     cfg.keywordRulesSeeded = true;
     cfg.SaveKeywordRules(keywords::Rules());
 
+    // Same trap as Reset Strip Settings: RestoreAll clears titleFontSize but
+    // only UpdateFonts rebuilds the font, and ReloadAfterSourceChange is about
+    // the calendar rather than the drawing.
+    AfterFontChange(app);
     app.ReloadAfterSourceChange();
 }
 
@@ -1532,7 +1536,12 @@ bool Invoke(App& app, HWND owner, UINT id) {
 
         case IDM_RESTORE_STRIP:
             cfg.RestoreStrip();
-            AfterAppearanceChange(app);
+            // AfterFontChange, not AfterAppearanceChange: the reset puts
+            // titleFontSize back to zero, and the font object is only rebuilt
+            // by UpdateFonts. Without this the setting resets and the strip
+            // carries on drawing at the old size, which looks exactly like the
+            // reset having ignored the text size.
+            AfterFontChange(app);
             return true;
 
         case IDM_RESTORE_ALL:
