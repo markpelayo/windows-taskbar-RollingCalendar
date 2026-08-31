@@ -36,6 +36,7 @@
 #include "calsource.h"
 #include "common.h"
 #include "demodata.h"
+#include "diag.h"
 #include "fetch.h"
 #include "ics.h"
 #include "keywords.h"
@@ -168,12 +169,18 @@ bool App::Initialize(HINSTANCE instance) {
 
     // WS_EX_TOOLWINDOW keeps it out of Alt-Tab and off the taskbar it is sitting
     // in; WS_EX_NOACTIVATE stops a click stealing focus from whatever the user
-    // was actually typing into. Deliberately *not* WS_EX_LAYERED: a layered
-    // window cannot be a child window, which is why timeline.cpp approximates
-    // the taskbar background rather than letting it show through.
+    // was actually typing into.
+    //
+    // WS_CLIPSIBLINGS is not optional here, and its absence is not a
+    // theoretical problem. Another application embedding its own widget in the
+    // taskbar -- which is precisely what the companion pinger project does --
+    // becomes a sibling of this window. Without sibling clipping, two
+    // overlapping foreign children paint over each other's pixels, and both
+    // appear to vanish at the next repaint. Neither app can see the other, so
+    // neither can diagnose it.
     hwnd_ = ::CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
                               kWindowClass, kDisplayName,
-                              WS_CHILD | WS_VISIBLE,
+                              WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
                               0, 0, 1, 1,
                               parent, nullptr, instance_, nullptr);
     if (!hwnd_) return false;
@@ -189,6 +196,7 @@ bool App::Initialize(HINSTANCE instance) {
     EnsureTrayIcon();
 
     RelayoutNow();
+    diag::Snapshot(L"startup complete", hwnd_, taskbar_.window);
 
     ::SetTimer(hwnd_, kTickTimerId, kTickIntervalMs, nullptr);
 
@@ -357,6 +365,11 @@ void App::RelayoutNow() {
     widgetWidth_ = std::max(1, timeline_.Measure(Clock::Now()));
     widgetThickness_ = std::max(1, UsableThickness(taskbar_));
 
+    diag::Log(L"relayout   : measured width=%d thickness=%d "
+              L"(timelineWidth=%.0f maxLabelWidth=%.0f windowMinutes=%.0f)",
+              widgetWidth_, widgetThickness_, Cfg().timelineWidth, Cfg().maxLabelWidth,
+              Cfg().windowMinutes);
+
     PositionWidget(hwnd_, taskbar_, hostMode_,
                    AutoOffsetAlong(taskbar_, widgetWidth_, Cfg().widgetOffsetFromRight),
                    widgetWidth_, widgetThickness_);
@@ -420,6 +433,20 @@ void App::OnTick() {
             if (taskbar_.dpi != oldDpi) timeline_.UpdateFonts(DpiForWindow(hwnd_));
             if (!dragging_) RelayoutNow();
         }
+
+        // Re-assert the z-order whether or not anything moved. The shell
+        // reorders its children when it relayouts and has no reason to keep a
+        // stranger on top, and a strip that has sunk behind the bar does not
+        // look like a z-order problem from the outside -- it looks like a
+        // rendering fault, or like the app is not running at all.
+        if (hostMode_ == HostMode::Embedded) RaiseWithinTaskbar(hwnd_);
+    }
+
+    // A heartbeat every ten seconds. Temporary, along with the rest of diag.
+    static int diagPoll = 0;
+    if (++diagPoll >= 10) {
+        diagPoll = 0;
+        diag::Snapshot(L"heartbeat", hwnd_, taskbar_.window);
     }
 
     InvalidateStrip();
@@ -514,6 +541,11 @@ void App::UpdateTrayTooltip(const std::wstring& text) {
 
 void App::ShowMenu(POINT screenPt) {
     if (!hwnd_) return;
+
+    // Opening the menu is the one thing the user can do deliberately at a
+    // moment when something looks wrong, so it is worth a full snapshot. Goes
+    // with the rest of diag when that is removed.
+    diag::Snapshot(L"menu opened", hwnd_, taskbar_.window);
 
     // Built once and held for the life of the popup: menu.h says the rows are
     // retained for owner-drawing and must outlive the HMENU, and `rows` is

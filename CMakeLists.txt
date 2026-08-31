@@ -45,6 +45,8 @@ add_executable(RollingCalendar WIN32
     src/dialogs.cpp
     src/common.cpp
     src/tzmap.cpp
+    # Temporary: diagnostic log for the taskbar hosting behaviour.
+    src/diag.cpp
     src/resources.rc
 )
 

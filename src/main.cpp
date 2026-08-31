@@ -13,6 +13,7 @@
 
 #include "app.h"
 #include "common.h"
+#include "diag.h"
 
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "ole32.lib")
@@ -83,8 +84,14 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance,
     icc.dwICC = ICC_STANDARD_CLASSES | ICC_DATE_CLASSES | ICC_UPDOWN_CLASS;
     ::InitCommonControlsEx(&icc);
 
+    // Temporary. Remove this, diag.h, diag.cpp and the diag:: calls in app.cpp
+    // and taskbar.cpp once the taskbar hosting behaviour is settled.
+    rc::diag::Open();
+
     int exitCode = 1;
     if (rc::App::Get().Initialize(instance)) exitCode = rc::App::Get().Run();
+
+    rc::diag::Close();
 
     if (SUCCEEDED(com)) ::CoUninitialize();
     if (instanceLock) ::CloseHandle(instanceLock);

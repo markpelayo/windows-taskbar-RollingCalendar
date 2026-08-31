@@ -71,8 +71,19 @@ void PositionWidget(HWND child,
                     int thickness);
 
 // Where the widget should sit: `offsetFromRight` px from the taskbar's right
-// edge when the user has dragged it, otherwise immediately left of the tray.
+// edge when the user has dragged it, otherwise immediately left of the tray --
+// or left of any other application's widget already embedded there, since two
+// apps using this technique would otherwise both claim the same spot and one
+// would silently cover the other.
 int AutoOffsetAlong(const TaskbarInfo& info, int width, int offsetFromRight);
+
+// Re-asserts the strip's place at the top of the taskbar's child order.
+//
+// A child inserted by SetParent lands at the bottom, where the shell's own
+// content draws over it, and the shell reorders its children whenever it
+// relayouts. So this is called on every move and again on the periodic poll,
+// rather than once at embedding time.
+void RaiseWithinTaskbar(HWND child);
 
 // The colour the shell draws taskbar text in.
 //
