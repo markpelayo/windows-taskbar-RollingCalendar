@@ -243,12 +243,19 @@ void Settings::Load() {
     urgentSeconds = ini.Positive(L"hidden", L"urgentSeconds", 120);
     // Zero is a legitimate stored value here -- it means off -- so this cannot
     // use Positive(), which treats zero as "absent, use the default".
+    titleFontSize = ini.Positive(L"strip", L"titleFontSize", 0);
+    if (titleFontSize < 6 || titleFontSize > 48) titleFontSize = 0;
+    fontSizeCustoms.clear();
+    const int fontCustomCount = ini.Count(L"fontsize");
+    for (int i = 1; i <= fontCustomCount; ++i) {
+        const double value = ini.Positive(L"fontsize", Format(L"custom%d", i), 0);
+        if (value >= 6 && value <= 48) fontSizeCustoms.push_back(value);
+    }
     endingFlashSeconds = ini.Number(L"strip", L"endingFlashSeconds", 0);
     if (!(endingFlashSeconds > 0)) endingFlashSeconds = 0;      // also catches NaN
     if (endingFlashSeconds > 3600) endingFlashSeconds = 3600;
     solidBlocks = ini.Bool(L"hidden", L"solidBlocks", true);
     blockGap = ini.Positive(L"hidden", L"blockGap", 1);
-    titleFontSize = ini.Positive(L"hidden", L"titleFontSize", 0);
     dayAnchorKeyword = ini.Text(L"hidden", L"dayAnchorKeyword", L"sleep");
     hostOverride = static_cast<int>(ini.Number(L"hidden", L"hostOverride", 0));
     if (hostOverride < 0 || hostOverride > 3) hostOverride = 0;
@@ -426,6 +433,15 @@ void Settings::Save() {
     AppendBool(&out, L"showNextName", showNextName);
     AppendBool(&out, L"showNextDuration", showNextDuration);
     AppendNumber(&out, L"endingFlashSeconds", endingFlashSeconds);
+    AppendNumber(&out, L"titleFontSize", titleFontSize);
+    AppendLine(&out, L"");
+
+    AppendLine(&out, L"[fontsize]");
+    AppendInt(&out, L"count", static_cast<int>(fontSizeCustoms.size()));
+    for (size_t i = 0; i < fontSizeCustoms.size(); ++i) {
+        AppendNumber(&out, Format(L"custom%d", static_cast<int>(i) + 1).c_str(),
+                     fontSizeCustoms[i]);
+    }
     AppendLine(&out, L"");
 
     AppendLine(&out, L"[hidden]");
@@ -435,7 +451,6 @@ void Settings::Save() {
     AppendBool(&out, L"solidBlocks", solidBlocks);
     AppendNumber(&out, L"blockGap", blockGap);
     AppendNumber(&out, L"blockCornerRadius", blockCornerRadius);
-    AppendNumber(&out, L"titleFontSize", titleFontSize);
     AppendText(&out, L"dayAnchorKeyword", dayAnchorKeyword);
     AppendNumber(&out, L"hostOverride", hostOverride);
     AppendNumber(&out, L"pastFade", pastFade);
@@ -558,12 +573,19 @@ void Settings::RestoreStrip() {
     showNowTimeLeft = true;
     showNextName = true;
     showNextDuration = true;
+    // Text Size resets with the rest of the geometry. It is the one thing on
+    // this list a user is likely to have changed on purpose and want back, and
+    // "reset the strip's appearance" that left the text a different size than
+    // it started would not have reset the strip's appearance.
+    titleFontSize = 0;
+    fontSizeCustoms.clear();
     Save();
 }
 
 bool Settings::isAppearanceDefault() const {
     return windowMinutes == 120 && timelineWidth == 250 && maxLabelWidth == 360 && showNowName &&
-           showNowTimeLeft && showNextName && showNextDuration;
+           showNowTimeLeft && showNextName && showNextDuration && titleFontSize == 0 &&
+           fontSizeCustoms.empty();
 }
 
 bool Settings::isEverythingDefault() const {

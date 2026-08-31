@@ -546,6 +546,18 @@ void AfterAppearanceChange(App& app) {
     app.InvalidateStrip();
 }
 
+// A text-size change needs the fonts rebuilt before anything is re-measured,
+// which an ordinary appearance change does not. Measuring with the old font and
+// drawing with the new one gives a strip that is the wrong width for one tick,
+// and at the sizes involved that is visible as a jump.
+void AfterFontChange(App& app) {
+    Cfg().Save();
+    app.GetTimeline().UpdateFonts(DpiForWindow(app.Window()));
+    app.GetTimeline().InvalidateLabelCache();
+    app.RelayoutNow();
+    app.InvalidateStrip();
+}
+
 void AddCalendarFlow(App& app, HWND owner) {
     std::wstring name;
     std::wstring link;
@@ -962,6 +974,68 @@ UniqueMenu BuildAlertVoice() {
     return m;
 }
 
+// ------------------------------------------------------------------ text size
+
+// Three steps above the shell's size, which is what the default is. Chosen as
+// noticeable rather than fine-grained: anyone who wants 11.5 pt can add it, and
+// a submenu of every size between 9 and 16 would be a scrolling list nobody
+// reads.
+const double kFontSizeChoices[] = {11.0, 13.0, 15.0};
+
+// See the comment where this is used: the three text-size id ranges are twenty
+// apart, so the user's own list has to stop at twenty.
+constexpr size_t kMaxFontSizes = 20;
+
+std::wstring FontSizeLabel(double points) {
+    if (points <= 0) return L"Default (matches the taskbar)";
+    return Format(L"%g pt", points);
+}
+
+std::wstring FontSizeMenuTitle() {
+    const double s = Cfg().titleFontSize;
+    return L"Text Size: " + (s > 0 ? Format(L"%g pt", s) : std::wstring(L"Default"));
+}
+
+UniqueMenu BuildFontSize() {
+    UniqueMenu m(::CreatePopupMenu());
+    const Settings& cfg = Cfg();
+    const double current = cfg.titleFontSize;
+
+    AddText(m.get(), IDM_FONTSIZE_DEFAULT, FontSizeLabel(0), current <= 0, true, true);
+    AddSeparator(m.get());
+
+    for (size_t i = 0; i < std::size(kFontSizeChoices); ++i) {
+        const bool on = std::fabs(current - kFontSizeChoices[i]) < 0.01;
+        AddText(m.get(), IDM_FONTSIZE_BASE + static_cast<UINT>(i),
+                FontSizeLabel(kFontSizeChoices[i]), on, true, true);
+    }
+
+    // The user's own sizes, each with a Remove beside it. A list you can add to
+    // but not take from fills up permanently, and the only way out would be to
+    // edit the settings file.
+    if (!cfg.fontSizeCustoms.empty()) {
+        AddSeparator(m.get());
+        // Capped at the width of its own id range, which is narrower than the
+        // general dynamic-list cap: the three font-size ranges are twenty slots
+        // apart, so a twenty-first custom size would collide with the next
+        // range and quietly become a different command.
+        const size_t n = std::min<size_t>(cfg.fontSizeCustoms.size(), kMaxFontSizes);
+        for (size_t i = 0; i < n; ++i) {
+            const double size = cfg.fontSizeCustoms[i];
+            const bool on = std::fabs(current - size) < 0.01;
+            AddText(m.get(), IDM_FONTSIZE_CUST_BASE + static_cast<UINT>(i), FontSizeLabel(size),
+                    on, true, true);
+            AddText(m.get(), IDM_FONTSIZE_DEL_BASE + static_cast<UINT>(i),
+                    L"      Remove " + FontSizeLabel(size));
+        }
+    }
+
+    AddSeparator(m.get());
+    AddText(m.get(), IDM_FONTSIZE_CUSTOM, L"Add Custom...");
+    AddNote(m.get(), L"Reset Strip Settings puts this back to the default");
+    return m;
+}
+
 // ---------------------------------------------------------- ending soon flash
 
 // One, two and five minutes. Ten was offered briefly in the original and
@@ -1239,6 +1313,7 @@ UniqueMenu Build(App& app, const std::vector<DayRow>& rows) {
     AddSubmenu(m.get(), BuildTimelineWidth(), L"Timeline Width");
     AddSubmenu(m.get(), BuildLabels(), L"Labels");
     AddSubmenu(m.get(), BuildLabelLength(dc), L"Label Length");
+    AddSubmenu(m.get(), BuildFontSize(), FontSizeMenuTitle());
     AddText(m.get(), IDM_RESTORE_STRIP, L"Reset Strip Settings", false,
             !cfg.isAppearanceDefault());
     AddSeparator(m.get());
@@ -1467,6 +1542,39 @@ bool Invoke(App& app, HWND owner, UINT id) {
         case IDM_REFRESH_NOW:
             app.Refresh();
             return true;
+
+        case IDM_FONTSIZE_DEFAULT:
+            cfg.titleFontSize = 0;
+            cfg.Save();
+            AfterFontChange(app);
+            return true;
+
+        case IDM_FONTSIZE_CUSTOM: {
+            double points = cfg.titleFontSize > 0 ? cfg.titleFontSize : 12.0;
+            if (!dialogs::NumberInput(owner, L"Text Size",
+                                      L"Strip text size in points, from 6 to 48.", 6.0, 48.0,
+                                      false, &points)) {
+                return true;
+            }
+            cfg.titleFontSize = points;
+
+            // Remembered as well as applied, so it can be chosen again later
+            // without retyping. Presets are not duplicated into the list.
+            bool known = false;
+            for (double preset : kFontSizeChoices) {
+                if (std::fabs(preset - points) < 0.01) known = true;
+            }
+            for (double existing : cfg.fontSizeCustoms) {
+                if (std::fabs(existing - points) < 0.01) known = true;
+            }
+            if (!known && cfg.fontSizeCustoms.size() < kMaxFontSizes) {
+                cfg.fontSizeCustoms.push_back(points);
+                std::sort(cfg.fontSizeCustoms.begin(), cfg.fontSizeCustoms.end());
+            }
+            cfg.Save();
+            AfterFontChange(app);
+            return true;
+        }
 
         case IDM_FLASH_OFF:
             cfg.endingFlashSeconds = 0;
@@ -1743,6 +1851,40 @@ bool Invoke(App& app, HWND owner, UINT id) {
         return true;   // a listing, not a command
     }
 
+    // Upper bound is the startup-delay range, not the flash range: the delays
+    // sit between the two and would otherwise be read as font removals.
+    if (id >= IDM_FONTSIZE_DEL_BASE && id < IDM_STARTUP_DELAY_BASE) {
+        const size_t index = id - IDM_FONTSIZE_DEL_BASE;
+        if (index >= cfg.fontSizeCustoms.size()) return false;
+        const double removed = cfg.fontSizeCustoms[index];
+        cfg.fontSizeCustoms.erase(cfg.fontSizeCustoms.begin() +
+                                  static_cast<std::ptrdiff_t>(index));
+        // Removing the size currently in use falls back to the default rather
+        // than leaving the strip at a size that is no longer on the menu.
+        if (std::fabs(cfg.titleFontSize - removed) < 0.01) cfg.titleFontSize = 0;
+        cfg.Save();
+        AfterFontChange(app);
+        return true;
+    }
+
+    if (id >= IDM_FONTSIZE_CUST_BASE && id < IDM_FONTSIZE_DEL_BASE) {
+        const size_t index = id - IDM_FONTSIZE_CUST_BASE;
+        if (index >= cfg.fontSizeCustoms.size()) return false;
+        cfg.titleFontSize = cfg.fontSizeCustoms[index];
+        cfg.Save();
+        AfterFontChange(app);
+        return true;
+    }
+
+    if (id >= IDM_FONTSIZE_BASE && id < IDM_FONTSIZE_CUST_BASE) {
+        const size_t index = id - IDM_FONTSIZE_BASE;
+        if (index >= std::size(kFontSizeChoices)) return false;
+        cfg.titleFontSize = kFontSizeChoices[index];
+        cfg.Save();
+        AfterFontChange(app);
+        return true;
+    }
+
     if (id >= IDM_FLASH_BASE && id < IDM_MONITOR_BASE) {
         const size_t index = id - IDM_FLASH_BASE;
         if (index >= std::size(kFlashChoices)) return false;
@@ -1778,7 +1920,7 @@ bool Invoke(App& app, HWND owner, UINT id) {
         return true;
     }
 
-    if (id >= IDM_CHIMEVOL_DEL_BASE && id < IDM_STARTUP_DELAY_BASE) {
+    if (id >= IDM_CHIMEVOL_DEL_BASE && id < IDM_FONTSIZE_BASE) {
         const std::vector<int> volumes = VolumeList();
         const size_t index = id - IDM_CHIMEVOL_DEL_BASE;
         if (index >= volumes.size()) return false;

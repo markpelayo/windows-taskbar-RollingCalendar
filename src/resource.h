@@ -31,6 +31,9 @@
 #define IDM_FLASH_OFF           1024
 #define IDM_FLASH_CUSTOM        1025
 
+#define IDM_FONTSIZE_DEFAULT    1026
+#define IDM_FONTSIZE_CUSTOM     1027
+
 #define IDM_SOUNDHOURS_OFF      1030
 #define IDM_SOUNDHOURS_ALLDAY   1031
 #define IDM_SOUNDHOURS_CUSTOM   1032
@@ -80,6 +83,9 @@
 #define IDM_CHIMEVOL_BASE       3200
 #define IDM_CHIMEVOL_DEL_BASE   3300
 #define IDM_STARTUP_DELAY_BASE  3400   // + index into 5/10/15/20/30/60
+#define IDM_FONTSIZE_BASE       3340   // + index into the three text-size presets
+#define IDM_FONTSIZE_CUST_BASE  3360   // + index into the user's own sizes
+#define IDM_FONTSIZE_DEL_BASE   3380   // + index; removes one of the user's sizes
 #define IDM_FLASH_BASE          3420   // + index into the three flash presets
 #define IDM_MONITOR_BASE        3450   // + index into the detected taskbars
 #define IDM_DAYROW_BASE         3500   // + row index; inert, listed only

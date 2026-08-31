@@ -85,10 +85,6 @@ constexpr int kTrackInset = 2;       // minimum vertical clearance above and bel
 // Height of the capsule band in logical px, chosen to match a taskbar icon.
 constexpr int kBlockHeight = 24;
 
-// How much larger than the shell's menu font the strip's text is drawn. Applies
-// only when titleFontSize has not been set explicitly, so an exact size in
-// points still means exactly that.
-constexpr double kFontBoost = 1.17;
 constexpr int kBlockOvershoot = 12;  // how far a long block may run past the strip
 constexpr int kMinBlockWidth = 3;
 constexpr int kMinAvailable = 12;    // below this a name is dropped, not truncated
@@ -223,6 +219,10 @@ struct Timeline::Impl {
 
     // Reused across frames so a repaint does not touch the heap either.
     std::vector<const CalEvent*> drawOrder;
+    // Parallel to drawOrder: true where a block is painted over a longer one.
+    // A member rather than a local so the allocation happens once, not once a
+    // second for the life of the process.
+    std::vector<bool> overlapping;
     std::vector<CalEvent> pickBuffer;
 
     ~Impl() {
@@ -568,7 +568,31 @@ struct Timeline::Impl {
         const LONG overshoot = Scale(kBlockOvershoot, dpi);
         const int minWidth = std::max(1, Scale(kMinBlockWidth, dpi));
 
-        for (const CalEvent* e : drawOrder) {
+        // Which blocks land on top of a longer one.
+        //
+        // Two concurrent blocks of the same colour -- two meetings, say -- are a
+        // single indistinguishable capsule once the shorter is painted over the
+        // longer, and the overlap badge in the gutter tells you there is a
+        // clash without showing you where. So anything drawn on top of
+        // something else gets a hard black outline, which is the one colour no
+        // calendar block uses and which separates the two at any size.
+        //
+        // Only the block on top is outlined. Ringing both would draw a line
+        // down the middle of the pair and read as three blocks rather than two.
+        overlapping.assign(drawOrder.size(), false);
+        for (size_t i = 1; i < drawOrder.size(); ++i) {
+            for (size_t j = 0; j < i; ++j) {
+                if (drawOrder[i]->start < drawOrder[j]->end &&
+                    drawOrder[j]->start < drawOrder[i]->end) {
+                    overlapping[i] = true;
+                    break;
+                }
+            }
+        }
+
+        for (size_t index = 0; index < drawOrder.size(); ++index) {
+            const CalEvent* e = drawOrder[index];
+            const bool onTopOfSomething = overlapping[index];
             const double x0 = std::max(X(e->start), static_cast<double>(strip.left - overshoot));
             const double x1 = std::min(X(e->end), static_cast<double>(strip.right + overshoot));
             const double fullWidth = std::max(x1 - x0, static_cast<double>(minWidth));
@@ -631,17 +655,28 @@ struct Timeline::Impl {
             // horizontal runs are not sliced lengthwise, but exact at the seam
             // so the darker future stroke cannot bleed over the past side.
             SelectGuard hollow(dc, ::GetStockObject(NULL_BRUSH));
-            if (split > r.left) {
-                DcStateGuard state(dc);
-                ::IntersectClipRect(dc, r.left - 1, r.top - 1, split, r.bottom + 1);
-                SelectGuard pen(dc, PenFor(Blend(pastFill, RGB(0, 0, 0), kOutlinePast)));
+
+            if (onTopOfSomething) {
+                // One ring, all the way round, in black. Not split into past
+                // and future halves like the ordinary outline: the point here
+                // is to say "this is a separate block", and an outline that
+                // changed colour at the now line would be read as part of the
+                // fading rather than as a boundary.
+                SelectGuard pen(dc, PenFor(RGB(0, 0, 0)));
                 ::RoundRect(dc, r.left, r.top, r.right, r.bottom, diameter, diameter);
-            }
-            if (split < r.right) {
-                DcStateGuard state(dc);
-                ::IntersectClipRect(dc, split, r.top - 1, r.right + 1, r.bottom + 1);
-                SelectGuard pen(dc, PenFor(Blend(futureFill, RGB(0, 0, 0), kOutlineFuture)));
-                ::RoundRect(dc, r.left, r.top, r.right, r.bottom, diameter, diameter);
+            } else {
+                if (split > r.left) {
+                    DcStateGuard state(dc);
+                    ::IntersectClipRect(dc, r.left - 1, r.top - 1, split, r.bottom + 1);
+                    SelectGuard pen(dc, PenFor(Blend(pastFill, RGB(0, 0, 0), kOutlinePast)));
+                    ::RoundRect(dc, r.left, r.top, r.right, r.bottom, diameter, diameter);
+                }
+                if (split < r.right) {
+                    DcStateGuard state(dc);
+                    ::IntersectClipRect(dc, split, r.top - 1, r.right + 1, r.bottom + 1);
+                    SelectGuard pen(dc, PenFor(Blend(futureFill, RGB(0, 0, 0), kOutlineFuture)));
+                    ::RoundRect(dc, r.left, r.top, r.right, r.bottom, diameter, diameter);
+                }
             }
         }
     }
@@ -713,14 +748,13 @@ void Timeline::UpdateFonts(int dpi) {
         // per-monitor-aware process is 96 whatever monitor the taskbar is on,
         // so the shell's own size has to be scaled by hand.
         //
-        // And then scaled up again. The shell's menu font is sized for menus,
-        // which are read at rest with the pointer already on them; the strip is
-        // read at a glance out of the corner of an eye, from further away, and
-        // at the same size it is legible rather than readable. A sixth larger
-        // is the smallest step that changes that.
+        // No boost. The shell's own menu-font size is the default because it is
+        // what every other thing living in the taskbar draws with, including
+        // the companion pinger, and a widget that sets its own text a size
+        // larger than its neighbours looks like a mistake rather than a
+        // choice. Text Size in the menu is there for anyone who wants it
+        // larger.
         lf.lfHeight = ::MulDiv(lf.lfHeight, dpi_, 96);
-        lf.lfHeight = static_cast<LONG>(
-            std::lround(static_cast<double>(lf.lfHeight) * kFontBoost));
     }
     lf.lfQuality = CLEARTYPE_QUALITY;
 

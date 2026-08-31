@@ -56,6 +56,14 @@ public:
     bool showNowTimeLeft = true;
     bool showNextName = true;
     bool showNextDuration = true;
+
+    // Text Size, in points. 0 means the shell's own menu-font size, which is
+    // what every other thing in the taskbar draws with. Moved out of the hidden
+    // settings and onto the menu, so it resets with the rest of the strip's
+    // appearance.
+    double titleFontSize = 0;
+    std::vector<double> fontSizeCustoms;   // sizes the user added, removable
+
     bool isAppearanceDefault() const;
 
     // ---- hidden settings (file only, no menu) --------------------------
@@ -75,7 +83,6 @@ public:
     bool solidBlocks = true;
     double blockGap = 1;
     double blockCornerRadius = 0;   // 0 means a full capsule
-    double titleFontSize = 0;       // 0 means the system menu font size
     std::wstring dayAnchorKeyword = L"sleep";
 
     // How the strip is hosted, for when the automatic choice is wrong on a
