@@ -223,7 +223,7 @@ bool App::Initialize(HINSTANCE instance) {
     // born as a child of it. A WS_CHILD window needs a parent at creation, and
     // creating it under the desktop only to re-parent it a line later would
     // make it flicker into view in the top-left corner first.
-    taskbar_ = QueryTaskbar();
+    taskbar_ = QueryTaskbar(Cfg().monitorDevice);
     const HWND parent = taskbar_.valid ? taskbar_.window : ::GetDesktopWindow();
 
     // WS_EX_TOOLWINDOW keeps it out of Alt-Tab and off the taskbar it is sitting
@@ -443,6 +443,32 @@ void App::BeginMoveWidget() {
     ::SetCursor(::LoadCursorW(nullptr, IDC_SIZEWE));
 }
 
+void App::RelocateToTaskbar() {
+    if (!hwnd_) return;
+
+    diag::Log(L"relocate   : requested display %s",
+              Cfg().monitorDevice.empty() ? L"(primary)" : Cfg().monitorDevice.c_str());
+
+    // Detach first. Re-parenting straight from one taskbar to another leaves
+    // the window briefly a child of two things as far as the old bar's layout
+    // is concerned, and the old bar does not always repaint the vacated strip.
+    DetachFromTaskbar(hwnd_);
+
+    taskbar_ = QueryTaskbar(Cfg().monitorDevice);
+    hostMode_ = EstablishHost(hwnd_, taskbar_);
+
+    timeline_.UpdateFonts(DpiForWindow(hwnd_));
+    timeline_.InvalidateLabelCache();
+    RelayoutNow();
+
+    // The tray icon belongs to whichever taskbar Explorer feels like putting it
+    // on and is not ours to move, but the tooltip text is worth refreshing so
+    // it does not describe a strip that has gone elsewhere.
+    g_lastTooltip.clear();
+
+    diag::Snapshot(L"after relocate", hwnd_, taskbar_.window);
+}
+
 void App::ResetWidgetPosition() {
     Cfg().widgetOffsetFromRight = -1;
     Cfg().Save();
@@ -476,7 +502,7 @@ void App::OnTick() {
     static int taskbarPoll = 0;
     if (++taskbarPoll >= kTaskbarPollTicks) {
         taskbarPoll = 0;
-        const TaskbarInfo fresh = QueryTaskbar();
+        const TaskbarInfo fresh = QueryTaskbar(Cfg().monitorDevice);
         if (fresh.valid &&
             (fresh.window != taskbar_.window || !::EqualRect(&fresh.bounds, &taskbar_.bounds) ||
              fresh.edge != taskbar_.edge || fresh.dpi != taskbar_.dpi ||
@@ -525,7 +551,7 @@ void App::OnTick() {
 void App::OnTaskbarCreated() {
     // Explorer has restarted. The old taskbar window is gone, this window is
     // parentless, and the tray icon it used to own no longer exists.
-    taskbar_ = QueryTaskbar();
+    taskbar_ = QueryTaskbar(Cfg().monitorDevice);
     hostMode_ = EstablishHost(hwnd_, taskbar_);
 
     trayIconAdded_ = false;

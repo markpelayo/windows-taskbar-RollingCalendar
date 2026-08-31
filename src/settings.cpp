@@ -251,6 +251,8 @@ void Settings::Load() {
     if (pastFade < 0.0 || pastFade >= 1.0) pastFade = 0;   // 1.0 would be pure white
     blockHeight = ini.Number(L"hidden", L"blockHeight", 0);
     if (blockHeight < 0.0 || blockHeight > 200.0) blockHeight = 0;
+    innerGap = ini.Number(L"hidden", L"innerGap", 0);
+    if (innerGap < 0.0 || innerGap > 64.0) innerGap = 0;
 
     // Zero is a legitimate stored value here -- it selects a full capsule -- so
     // this one clamps rather than rejecting.
@@ -315,6 +317,7 @@ void Settings::Load() {
     // ---- widget placement ---------------------------------------------------
     widgetOffsetFromRight = ini.Int(L"widget", L"offsetFromRight", -1);
     if (widgetOffsetFromRight < -1) widgetOffsetFromRight = -1;
+    monitorDevice = ini.Text(L"widget", L"monitorDevice", L"");
 
     // ---- sound hours --------------------------------------------------------
     soundHoursTouched = ini.Bool(L"soundhours", L"touched", false);
@@ -431,6 +434,7 @@ void Settings::Save() {
     AppendNumber(&out, L"hostOverride", hostOverride);
     AppendNumber(&out, L"pastFade", pastFade);
     AppendNumber(&out, L"blockHeight", blockHeight);
+    AppendNumber(&out, L"innerGap", innerGap);
     AppendLine(&out, L"");
 
     AppendLine(&out, L"[calendar]");
@@ -463,6 +467,7 @@ void Settings::Save() {
 
     AppendLine(&out, L"[widget]");
     AppendInt(&out, L"offsetFromRight", widgetOffsetFromRight);
+    AppendText(&out, L"monitorDevice", monitorDevice);
     AppendLine(&out, L"");
 
     AppendLine(&out, L"[soundhours]");

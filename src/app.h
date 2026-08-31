@@ -56,6 +56,13 @@ public:
 
     // ---- widget -------------------------------------------------------
     void RelayoutNow();                   // re-measure and reposition
+
+    // Moves the strip to the taskbar named by the current monitor preference.
+    // Re-parents, re-establishes the host, and rebuilds the fonts, because two
+    // displays can be at different scaling factors and a strip that keeps the
+    // old monitor's font metrics is either clipped or half the size it should
+    // be.
+    void RelocateToTaskbar();
     void InvalidateStrip();
     void BeginMoveWidget();               // arms drag-to-reposition
     void ResetWidgetPosition();

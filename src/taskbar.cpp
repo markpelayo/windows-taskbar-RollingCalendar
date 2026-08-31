@@ -90,10 +90,14 @@ bool TaskbarUsesLightTheme() {
 
 }  // namespace
 
-TaskbarInfo QueryTaskbar() {
+namespace {
+
+// Fills in everything about one taskbar window. Split out of QueryTaskbar so
+// that a secondary bar can be described the same way as the primary one --
+// there is nothing special about the primary except that it is easy to find.
+TaskbarInfo BuildTaskbarInfo(HWND tray) {
     TaskbarInfo info;
 
-    const HWND tray = ::FindWindowW(L"Shell_TrayWnd", nullptr);
     if (!tray) return info;
     if (!::GetWindowRect(tray, &info.bounds)) return info;
     if (RectWidth(info.bounds) <= 0 || RectHeight(info.bounds) <= 0) return info;
@@ -104,12 +108,18 @@ TaskbarInfo QueryTaskbar() {
     // The edge is inferred from geometry rather than asked for, because
     // SHAppBarMessage(ABM_GETTASKBARPOS) reports the primary taskbar only and
     // the shell has never had an API for "which side is this particular bar on".
-    MONITORINFO mi{};
+    MONITORINFOEXW mi{};
     mi.cbSize = sizeof(mi);
     const HMONITOR mon = ::MonitorFromWindow(tray, MONITOR_DEFAULTTOPRIMARY);
     RECT screen{};
-    if (mon && ::GetMonitorInfoW(mon, &mi)) {
+    if (mon && ::GetMonitorInfoW(mon, reinterpret_cast<MONITORINFO*>(&mi))) {
         screen = mi.rcMonitor;
+        // The adapter's device name, \\.\DISPLAY2 and so on. Stored rather
+        // than a monitor index because indices are reassigned when a display is
+        // unplugged, and a preference that silently means a different screen
+        // after a dock is worse than one that fails to apply.
+        info.monitorDevice = mi.szDevice;
+        info.isPrimaryMonitor = (mi.dwFlags & MONITORINFOF_PRIMARY) != 0;
     } else {
         screen.left = 0;
         screen.top = 0;
@@ -154,11 +164,90 @@ TaskbarInfo QueryTaskbar() {
 
     info.valid = true;
     diag::Log(L"taskbar    : hwnd=%p bounds=(%ld,%ld,%ld,%ld) edge=%d dpi=%d "
-              L"notify=%s composited=%s",
+              L"notify=%s composited=%s monitor=%s%s",
               tray, info.bounds.left, info.bounds.top, info.bounds.right, info.bounds.bottom,
               static_cast<int>(info.edge), info.dpi, info.hasNotifyArea ? L"yes" : L"no",
-              info.compositedShell ? L"YES" : L"no");
+              info.compositedShell ? L"YES" : L"no", info.monitorDevice.c_str(),
+              info.isPrimaryMonitor ? L" (primary)" : L"");
     return info;
+}
+
+BOOL CALLBACK CollectTaskbars(HWND hwnd, LPARAM param) {
+    wchar_t cls[64] = {0};
+    ::GetClassNameW(hwnd, cls, ARRAYSIZE(cls));
+
+    // The primary bar and the per-monitor ones are different window classes.
+    // The secondary class only exists while "Show my taskbar on all displays"
+    // is on, so a single-entry result does not necessarily mean a single
+    // monitor.
+    const bool isTaskbar = (_wcsicmp(cls, L"Shell_TrayWnd") == 0) ||
+                           (_wcsicmp(cls, L"Shell_SecondaryTrayWnd") == 0);
+    if (!isTaskbar) return TRUE;
+
+    auto* out = reinterpret_cast<std::vector<TaskbarInfo>*>(param);
+    TaskbarInfo info = BuildTaskbarInfo(hwnd);
+    if (info.valid) out->push_back(std::move(info));
+    return TRUE;
+}
+
+}  // namespace
+
+std::vector<TaskbarInfo> EnumerateTaskbars() {
+    std::vector<TaskbarInfo> bars;
+    ::EnumWindows(CollectTaskbars, reinterpret_cast<LPARAM>(&bars));
+
+    // Primary first, then left to right. The order is what the menu shows, and
+    // a list that reorders itself between openings would be unusable.
+    std::stable_sort(bars.begin(), bars.end(), [](const TaskbarInfo& a, const TaskbarInfo& b) {
+        if (a.isPrimaryMonitor != b.isPrimaryMonitor) return a.isPrimaryMonitor;
+        return a.bounds.left < b.bounds.left;
+    });
+    return bars;
+}
+
+std::wstring TaskbarInfo::MonitorLabel() const {
+    const int w = RectWidth(bounds);
+    wchar_t buf[160];
+
+    // The device name is not something to show a person, so it is reduced to
+    // its trailing digits: \\.\DISPLAY2 becomes "Display 2".
+    std::wstring number;
+    for (auto it = monitorDevice.rbegin(); it != monitorDevice.rend(); ++it) {
+        if (*it >= L'0' && *it <= L'9') {
+            number.insert(number.begin(), *it);
+        } else if (!number.empty()) {
+            break;
+        }
+    }
+    if (number.empty()) number = L"?";
+
+    ::swprintf_s(buf, L"Display %s \u2014 %d px wide%s", number.c_str(), w,
+                 isPrimaryMonitor ? L" (primary)" : L"");
+    return buf;
+}
+
+TaskbarInfo QueryTaskbar(const std::wstring& preferredDevice) {
+    const std::vector<TaskbarInfo> bars = EnumerateTaskbars();
+
+    if (bars.empty()) {
+        // EnumWindows found nothing, which should not happen while Explorer is
+        // running. Ask for the primary bar by name anyway rather than reporting
+        // no taskbar at all.
+        return BuildTaskbarInfo(::FindWindowW(L"Shell_TrayWnd", nullptr));
+    }
+
+    if (!preferredDevice.empty()) {
+        for (const TaskbarInfo& bar : bars) {
+            if (_wcsicmp(bar.monitorDevice.c_str(), preferredDevice.c_str()) == 0) return bar;
+        }
+        diag::Log(L"taskbar    : preferred display %s has no taskbar, using the primary",
+                  preferredDevice.c_str());
+    }
+
+    for (const TaskbarInfo& bar : bars) {
+        if (bar.isPrimaryMonitor) return bar;
+    }
+    return bars.front();
 }
 
 bool MakeCompositedChild(HWND child) {

@@ -71,10 +71,14 @@ constexpr double kPastFadeLight = 0.68;
 constexpr double kOutlinePast = 0.18;
 constexpr double kOutlineFuture = 0.32;
 
-// Logical px between a gutter and the strip. Wider than it looks like it needs
-// to be: the capsules are solid blocks of colour and text set close against
-// them reads as attached to the one it happens to be touching.
-constexpr int kInnerGap = 12;
+// Logical px between a gutter and the strip. Enough to stop the text reading as
+// attached to whichever capsule it is touching, and no more: every pixel here
+// is charged twice, once on each side, and taken off the taskbar.
+constexpr int kInnerGap = 6;
+
+// Tunable, because how much separation reads as separation depends on the
+// wallpaper the capsules are now sitting on.
+double InnerGap() { return Cfg().innerGap > 0 ? Cfg().innerGap : kInnerGap; }
 
 constexpr int kTrackInset = 2;       // minimum vertical clearance above and below blocks
 
@@ -745,12 +749,12 @@ int Timeline::Measure(Seconds now) {
         // The error replaces everything else on the strip, so the widget only
         // has to be wide enough to read it -- but never narrower than the strip
         // it replaced, or the taskbar would relayout every time a fetch failed.
-        return std::max(stripWidth, im.TextWidth(im.error, false) + Scale(2 * kInnerGap, dpi_));
+        return std::max(stripWidth, im.TextWidth(im.error, false) + Scale(2 * InnerGap(), dpi_));
     }
 
     im.EnsureLabels(events_, now);
 
-    const int gap = Scale(kInnerGap, dpi_);
+    const int gap = Scale(InnerGap(), dpi_);
     int total = stripWidth;
     if (im.frame.left.width > 0) total += im.frame.left.width + gap;
     if (im.frame.right.width > 0) total += im.frame.right.width + gap;
@@ -820,7 +824,7 @@ void Timeline::Paint(HDC dc, const RECT& bounds) {
 
     im.EnsureLabels(events_, now);
 
-    const LONG gap = Scale(kInnerGap, dpi_);
+    const LONG gap = Scale(InnerGap(), dpi_);
     const LONG leftWidth = im.frame.left.width;
     const LONG rightWidth = im.frame.right.width;
 

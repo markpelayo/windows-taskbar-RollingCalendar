@@ -34,6 +34,7 @@
 #include "resource.h"
 #include "settings.h"
 #include "soundhours.h"
+#include "taskbar.h"
 #include "timeline.h"
 #include "westminster.h"
 
@@ -960,6 +961,44 @@ UniqueMenu BuildAlertVoice() {
     return m;
 }
 
+// Which display's taskbar the strip lives in.
+//
+// Windows only creates a taskbar on a secondary display when "Show my taskbar
+// on all displays" is on, so this list is a list of *taskbars*, not of
+// monitors. If a display the user expects is missing, the setting to change is
+// in Windows, not here, and the note at the bottom says so.
+UniqueMenu BuildDisplays(const std::vector<TaskbarInfo>& bars) {
+    UniqueMenu m(::CreatePopupMenu());
+    const std::wstring& chosen = Cfg().monitorDevice;
+
+    AddText(m.get(), IDM_MONITOR_AUTO, L"Primary display (automatic)", chosen.empty(), true, true);
+    AddSeparator(m.get());
+
+    for (size_t i = 0, n = Capped(bars.size()); i < n; ++i) {
+        const bool on = !chosen.empty() &&
+                        _wcsicmp(chosen.c_str(), bars[i].monitorDevice.c_str()) == 0;
+        AddText(m.get(), IDM_MONITOR_BASE + static_cast<UINT>(i), bars[i].MonitorLabel(), on, true,
+                true);
+    }
+
+    AddSeparator(m.get());
+    AddNote(m.get(), L"Only displays showing a taskbar are listed");
+    return m;
+}
+
+std::wstring CurrentDisplayLabel(const std::vector<TaskbarInfo>& bars) {
+    const std::wstring& chosen = Cfg().monitorDevice;
+    for (const TaskbarInfo& bar : bars) {
+        const bool match = chosen.empty() ? bar.isPrimaryMonitor
+                                          : _wcsicmp(chosen.c_str(),
+                                                     bar.monitorDevice.c_str()) == 0;
+        if (match) return bar.MonitorLabel();
+    }
+    // The chosen display has no taskbar right now -- a dock was unplugged. Say
+    // so rather than showing a label for somewhere the strip is not.
+    return L"primary (chosen display absent)";
+}
+
 UniqueMenu BuildAlertCategories() {
     UniqueMenu m(::CreatePopupMenu());
     AddText(m.get(), IDM_ALERTS_CATS_ALL, L"All Categories", Cfg().alertCategories.empty(), true,
@@ -1160,6 +1199,17 @@ UniqueMenu Build(App& app, const std::vector<DayRow>& rows) {
     AddSeparator(m.get());
 
     // 26: where the widget sits.
+    //
+    // The display submenu only appears when there is more than one taskbar to
+    // choose between. On a single-monitor machine, or one where the taskbar is
+    // shown on the primary display only, a menu offering a choice of one would
+    // be a puzzle rather than a setting.
+    {
+        const std::vector<TaskbarInfo> bars = EnumerateTaskbars();
+        if (bars.size() > 1) {
+            AddSubmenu(m.get(), BuildDisplays(bars), L"Show on Display: " + CurrentDisplayLabel(bars));
+        }
+    }
     AddText(m.get(), IDM_MOVE_WIDGET, L"Move widget...");
     AddText(m.get(), IDM_RESET_POSITION, L"Reset widget position");
     AddSeparator(m.get());
@@ -1352,6 +1402,17 @@ bool Invoke(App& app, HWND owner, UINT id) {
 
         case IDM_REFRESH_NOW:
             app.Refresh();
+            return true;
+
+        case IDM_MONITOR_AUTO:
+            // Back to the primary display, and the dragged position goes with
+            // it: an offset measured along one taskbar means nothing on
+            // another, and leaving it would park the strip at an arbitrary
+            // point on the new one.
+            cfg.monitorDevice.clear();
+            cfg.widgetOffsetFromRight = -1;
+            cfg.Save();
+            app.RelocateToTaskbar();
             return true;
 
         case IDM_MOVE_WIDGET:
@@ -1595,7 +1656,22 @@ bool Invoke(App& app, HWND owner, UINT id) {
         return true;   // a listing, not a command
     }
 
-    if (id >= IDM_STARTUP_DELAY_BASE && id < IDM_DAYROW_BASE) {
+    if (id >= IDM_MONITOR_BASE && id < IDM_DAYROW_BASE) {
+        const size_t index = id - IDM_MONITOR_BASE;
+        const std::vector<TaskbarInfo> bars = EnumerateTaskbars();
+        if (index >= bars.size()) return false;
+
+        cfg.monitorDevice = bars[index].monitorDevice;
+        // A dragged offset is measured along the taskbar it was dragged on, so
+        // it is meaningless on a different one. Cleared rather than carried
+        // across, which would park the strip at an arbitrary point.
+        cfg.widgetOffsetFromRight = -1;
+        cfg.Save();
+        app.RelocateToTaskbar();
+        return true;
+    }
+
+    if (id >= IDM_STARTUP_DELAY_BASE && id < IDM_MONITOR_BASE) {
         const size_t index = id - IDM_STARTUP_DELAY_BASE;
         if (index >= std::size(kStartupDelays)) return false;
         cfg.startupDelay = kStartupDelays[index];

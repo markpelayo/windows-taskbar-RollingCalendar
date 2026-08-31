@@ -21,6 +21,7 @@
 #define IDM_QUIT                1009
 #define IDM_MOVE_WIDGET         1010
 #define IDM_RESET_POSITION      1011
+#define IDM_MONITOR_AUTO        1012
 
 #define IDM_KEYWORDS_IMPORT     1020
 #define IDM_KEYWORDS_SAMPLE     1021
@@ -76,5 +77,6 @@
 #define IDM_CHIMEVOL_BASE       3200
 #define IDM_CHIMEVOL_DEL_BASE   3300
 #define IDM_STARTUP_DELAY_BASE  3400   // + index into 5/10/15/20/30/60
+#define IDM_MONITOR_BASE        3450   // + index into the detected taskbars
 #define IDM_DAYROW_BASE         3500   // + row index; inert, listed only
 #define IDM_RANGE_LAST          4000

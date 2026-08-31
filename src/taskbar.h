@@ -26,6 +26,9 @@
 
 #include <windows.h>
 
+#include <string>
+#include <vector>
+
 namespace rc {
 
 enum class HostMode {
@@ -63,9 +66,35 @@ struct TaskbarInfo {
     //
     // The way out is to be composited too -- see MakeCompositedChild below.
     bool compositedShell = false;
+
+    // Which display this bar belongs to. The adapter device name (\\.\DISPLAY2)
+    // rather than an index, because indices are reassigned when a display is
+    // unplugged, and a stored preference that quietly comes to mean a different
+    // screen after a dock is worse than one that fails to apply.
+    std::wstring monitorDevice;
+    bool isPrimaryMonitor = false;
+
+    // "Display 2 - 1920 px wide (primary)". For the menu.
+    std::wstring MonitorLabel() const;
 };
 
-TaskbarInfo QueryTaskbar();
+// Every taskbar the shell currently has: the primary one plus a per-monitor bar
+// for each display, when "Show my taskbar on all displays" is on. Primary
+// first, then left to right, so the menu's order is stable between openings.
+//
+// A single entry does not mean a single monitor -- it means the user has the
+// taskbar on one screen only, which is a different thing and not something to
+// argue with.
+std::vector<TaskbarInfo> EnumerateTaskbars();
+
+// The bar to host the strip in: the one on `preferredDevice` if that display
+// still has a taskbar, otherwise the primary, otherwise whatever exists.
+//
+// Falling back rather than failing is deliberate. A laptop returning from a
+// dock has lost the display its preference names, and the right response is to
+// show the strip somewhere the user can see it and leave the preference alone
+// so it reapplies when the dock comes back.
+TaskbarInfo QueryTaskbar(const std::wstring& preferredDevice = std::wstring());
 
 // Turns an embedded child into a layered window, so DWM composites it as its
 // own visual and it lands above the shell's composition island.

@@ -91,6 +91,9 @@ public:
     // smaller than the default.
     double blockHeight = 0;
 
+    // Logical px between a gutter and the timeline. 0 means the built-in value.
+    double innerGap = 0;
+
     // ---- calendar source ----------------------------------------------
     std::wstring calendarUrl;
     std::vector<CalendarProfile> profiles;
@@ -117,6 +120,11 @@ public:
     // Stored as a distance from the taskbar's right edge; -1 means automatic
     // placement immediately left of the notification area.
     int widgetOffsetFromRight = -1;
+
+    // Which display's taskbar hosts the strip. The adapter device name; empty
+    // means the primary. Kept even when that display is absent, so unplugging
+    // a dock does not silently forget the choice.
+    std::wstring monitorDevice;
 
     // ---- sound hours ----------------------------------------------------
     bool soundHoursOn = true;
