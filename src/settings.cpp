@@ -245,6 +245,8 @@ void Settings::Load() {
     blockGap = ini.Positive(L"hidden", L"blockGap", 1);
     titleFontSize = ini.Positive(L"hidden", L"titleFontSize", 0);
     dayAnchorKeyword = ini.Text(L"hidden", L"dayAnchorKeyword", L"sleep");
+    hostOverride = static_cast<int>(ini.Number(L"hidden", L"hostOverride", 0));
+    if (hostOverride < 0 || hostOverride > 3) hostOverride = 0;
 
     // Zero is a legitimate stored value here -- it selects a full capsule -- so
     // this one clamps rather than rejecting.
@@ -422,6 +424,7 @@ void Settings::Save() {
     AppendNumber(&out, L"blockCornerRadius", blockCornerRadius);
     AppendNumber(&out, L"titleFontSize", titleFontSize);
     AppendText(&out, L"dayAnchorKeyword", dayAnchorKeyword);
+    AppendNumber(&out, L"hostOverride", hostOverride);
     AppendLine(&out, L"");
 
     AppendLine(&out, L"[calendar]");

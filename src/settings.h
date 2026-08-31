@@ -68,6 +68,17 @@ public:
     double titleFontSize = 0;       // 0 means the system menu font size
     std::wstring dayAnchorKeyword = L"sleep";
 
+    // How the strip is hosted, for when the automatic choice is wrong on a
+    // particular machine. 0 auto, 1 plain child, 2 layered child, 3 floating.
+    //
+    // Automatic means: a layered child inside the taskbar when the shell
+    // renders through a composition island (Windows 11), a plain child
+    // otherwise. This override exists because the alternative to a one-line
+    // edit in an INI file is a rebuild, and the failure it works around is a
+    // widget that cannot be seen -- which is not a state to leave anyone stuck
+    // in.
+    int hostOverride = 0;
+
     // ---- calendar source ----------------------------------------------
     std::wstring calendarUrl;
     std::vector<CalendarProfile> profiles;

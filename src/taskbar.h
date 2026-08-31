@@ -49,9 +49,35 @@ struct TaskbarInfo {
     // widget lives.
     RECT notifyBounds{};
     bool hasNotifyArea = false;
+
+    // True when the shell renders its taskbar through a composition island: a
+    // "Windows.UI.Composition.DesktopWindowContentBridge" child spanning the
+    // whole bar, which is how Windows 11 draws it.
+    //
+    // This matters more than it sounds. A composited visual is drawn above the
+    // GDI painting of sibling windows whatever the legacy z-order says, so an
+    // ordinary child window sitting at the very front of the taskbar's children
+    // is still underneath the bar's own pixels. Winning the child-order fight
+    // and then losing to the compositor looks, from the outside, exactly like
+    // the widget not running at all.
+    //
+    // The way out is to be composited too -- see MakeCompositedChild below.
+    bool compositedShell = false;
 };
 
 TaskbarInfo QueryTaskbar();
+
+// Turns an embedded child into a layered window, so DWM composites it as its
+// own visual and it lands above the shell's composition island.
+//
+// WS_EX_LAYERED on a child window is supported from Windows 8 onwards. Every
+// reference that says otherwise, including an earlier comment in this project,
+// predates that. The window stays fully opaque: alpha is only the mechanism for
+// getting redirected into the compositor, not an effect.
+//
+// Returns false when the call fails, which is the caller's cue to fall back to
+// a floating window rather than to a widget nobody can see.
+bool MakeCompositedChild(HWND child);
 
 // Thickness available to a widget inside the taskbar, in physical pixels, with
 // a small margin so the strip does not touch the edge.

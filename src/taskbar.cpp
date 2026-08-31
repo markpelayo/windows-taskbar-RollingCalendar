@@ -143,8 +143,42 @@ TaskbarInfo QueryTaskbar() {
         info.hasNotifyArea = true;
     }
 
+    // Windows 11 hosts the whole taskbar UI in a composition island. Its
+    // presence decides whether an ordinary GDI child can be seen at all, so it
+    // is worth knowing about before the first paint rather than after a user
+    // reports a blank taskbar.
+    info.compositedShell =
+        ::FindWindowExW(tray, nullptr, L"Windows.UI.Composition.DesktopWindowContentBridge",
+                        nullptr) != nullptr;
+
     info.valid = true;
+    diag::Log(L"taskbar    : hwnd=%p bounds=(%ld,%ld,%ld,%ld) edge=%d dpi=%d "
+              L"notify=%s composited=%s",
+              tray, info.bounds.left, info.bounds.top, info.bounds.right, info.bounds.bottom,
+              static_cast<int>(info.edge), info.dpi, info.hasNotifyArea ? L"yes" : L"no",
+              info.compositedShell ? L"YES" : L"no");
     return info;
+}
+
+bool MakeCompositedChild(HWND child) {
+    if (!child) return false;
+
+    const LONG_PTR ex = ::GetWindowLongPtrW(child, GWL_EXSTYLE);
+    ::SetLastError(0);
+    ::SetWindowLongPtrW(child, GWL_EXSTYLE, ex | static_cast<LONG_PTR>(WS_EX_LAYERED));
+
+    // Fully opaque. The alpha is not an effect; it is the only documented way
+    // to ask DWM to redirect this window's contents into a composition visual
+    // of its own, which is what puts it above the shell's island.
+    if (!::SetLayeredWindowAttributes(child, 0, 255, LWA_ALPHA)) {
+        const DWORD err = ::GetLastError();
+        diag::Log(L"composite  : SetLayeredWindowAttributes FAILED err=%lu", err);
+        ::SetWindowLongPtrW(child, GWL_EXSTYLE, ex);
+        return false;
+    }
+
+    diag::Log(L"composite  : layered child established");
+    return true;
 }
 
 int UsableThickness(const TaskbarInfo& info) {

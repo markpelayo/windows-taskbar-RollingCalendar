@@ -99,6 +99,53 @@ void ApplyHostStyle(HWND hwnd, HostMode mode) {
     ::SetWindowLongPtrW(hwnd, GWL_STYLE, style);
 }
 
+// Decides how the strip is hosted, and sets it up.
+//
+// Embedding as a plain child window is correct on the Windows 10 taskbar and
+// silently useless on the Windows 11 one, where the shell draws the whole bar
+// through a composition island. A composited visual covers the GDI painting of
+// sibling windows however the child order is arranged, so the strip ends up at
+// the front of the taskbar's children and still invisible -- which is the least
+// helpful failure available, because every diagnostic reports success.
+//
+// So on a composited shell the strip is made a layered child, which DWM
+// redirects into a visual of its own. If that cannot be arranged, a floating
+// topmost window is the fallback: less integrated, but never invisible.
+HostMode EstablishHost(HWND hwnd, const TaskbarInfo& info) {
+    if (!hwnd) return HostMode::Floating;
+
+    const int override_ = Cfg().hostOverride;
+    if (override_ == 3) {
+        diag::Log(L"host       : floating, by hostOverride");
+        DetachFromTaskbar(hwnd);
+        ApplyHostStyle(hwnd, HostMode::Floating);
+        return HostMode::Floating;
+    }
+
+    HostMode mode = EmbedInTaskbar(hwnd, info);
+    ApplyHostStyle(hwnd, mode);
+
+    if (mode == HostMode::Embedded) {
+        const bool wantLayered =
+            (override_ == 2) || (override_ == 0 && info.compositedShell);
+        if (wantLayered && !MakeCompositedChild(hwnd)) {
+            diag::Log(L"host       : layering failed, falling back to floating");
+            DetachFromTaskbar(hwnd);
+            ApplyHostStyle(hwnd, HostMode::Floating);
+            mode = HostMode::Floating;
+        }
+    }
+
+    diag::Log(L"host       : %s%s (override=%d, composited=%s)",
+              (mode == HostMode::Embedded) ? L"embedded" : L"floating",
+              (mode == HostMode::Embedded &&
+               (::GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & WS_EX_LAYERED))
+                  ? L" + layered"
+                  : L"",
+              override_, info.compositedShell ? L"yes" : L"no");
+    return mode;
+}
+
 // The link the display time zone is read from: the active profile's, or the
 // bare URL when there are no profiles.
 std::wstring ActiveLink() {
@@ -185,8 +232,7 @@ bool App::Initialize(HINSTANCE instance) {
                               parent, nullptr, instance_, nullptr);
     if (!hwnd_) return false;
 
-    hostMode_ = EmbedInTaskbar(hwnd_, taskbar_);
-    ApplyHostStyle(hwnd_, hostMode_);
+    hostMode_ = EstablishHost(hwnd_, taskbar_);
 
     timeline_.UpdateFonts(DpiForWindow(hwnd_));
 
@@ -427,8 +473,7 @@ void App::OnTick() {
             const int oldDpi = taskbar_.dpi;
             taskbar_ = fresh;
             if (newWindow) {
-                hostMode_ = EmbedInTaskbar(hwnd_, taskbar_);
-                ApplyHostStyle(hwnd_, hostMode_);
+                hostMode_ = EstablishHost(hwnd_, taskbar_);
             }
             if (taskbar_.dpi != oldDpi) timeline_.UpdateFonts(DpiForWindow(hwnd_));
             if (!dragging_) RelayoutNow();
@@ -469,8 +514,7 @@ void App::OnTaskbarCreated() {
     // Explorer has restarted. The old taskbar window is gone, this window is
     // parentless, and the tray icon it used to own no longer exists.
     taskbar_ = QueryTaskbar();
-    hostMode_ = EmbedInTaskbar(hwnd_, taskbar_);
-    ApplyHostStyle(hwnd_, hostMode_);
+    hostMode_ = EstablishHost(hwnd_, taskbar_);
 
     trayIconAdded_ = false;
     EnsureTrayIcon();
