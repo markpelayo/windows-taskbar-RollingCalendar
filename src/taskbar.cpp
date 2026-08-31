@@ -16,6 +16,7 @@
 
 #include "common.h"
 #include "diag.h"
+#include "timeline.h"
 
 namespace rc {
 namespace {
@@ -167,10 +168,17 @@ bool MakeCompositedChild(HWND child) {
     ::SetLastError(0);
     ::SetWindowLongPtrW(child, GWL_EXSTYLE, ex | static_cast<LONG_PTR>(WS_EX_LAYERED));
 
-    // Fully opaque. The alpha is not an effect; it is the only documented way
-    // to ask DWM to redirect this window's contents into a composition visual
-    // of its own, which is what puts it above the shell's island.
-    if (!::SetLayeredWindowAttributes(child, 0, 255, LWA_ALPHA)) {
+    // Two things at once. The alpha is not an effect -- it is what asks DWM to
+    // redirect this window into a composition visual of its own, which is what
+    // puts it above the shell's island. The colour key is what makes the strip
+    // look like part of the taskbar instead of a slab laid over it: the paint
+    // code fills its background with exactly this colour, and it vanishes.
+    //
+    // Guessing the taskbar's colour instead was never going to work. With
+    // transparency effects on, the bar is acrylic over the user's wallpaper,
+    // so there is no colour to guess.
+    if (!::SetLayeredWindowAttributes(child, timeline::ChromaKey(), 255,
+                                      LWA_COLORKEY | LWA_ALPHA)) {
         const DWORD err = ::GetLastError();
         diag::Log(L"composite  : SetLayeredWindowAttributes FAILED err=%lu", err);
         ::SetWindowLongPtrW(child, GWL_EXSTYLE, ex);

@@ -27,6 +27,12 @@ struct LabelSegment {
     std::wstring text;
     bool bold = false;
     bool truncatable = false;
+
+    // Drawn in the alert red regardless of the rest of the label. Only the
+    // simulated-clock marker uses this: a strip showing a time that is not the
+    // time needs to say so in a way that cannot be mistaken for ordinary
+    // content, and red is the one colour the rest of the label never uses.
+    bool accent = false;
 };
 
 struct GutterLabel {
@@ -58,6 +64,12 @@ public:
     void UpdateFonts(int dpi);
     int Dpi() const { return dpi_; }
 
+    // Whether the window this paints into is layered with the chroma key set.
+    // When it is, the background is filled with that key and disappears; when
+    // it is not, the key would render as a near-black slab, so an approximation
+    // of the taskbar's own colour is used instead.
+    void SetTransparentBackground(bool transparent);
+
     void SetEvents(std::vector<CalEvent> events);
     void SetError(const std::wstring& message);   // empty clears it
     void InvalidateLabelCache();
@@ -84,6 +96,14 @@ private:
 };
 
 namespace timeline {
+
+// The colour the strip fills its background with, and which the window's
+// layered attributes make transparent.
+//
+// Exposed so that the paint code and the window setup cannot disagree about
+// which colour disappears. If they did, the result would be an opaque slab with
+// nothing in either file looking wrong -- the kind of bug that takes a day.
+COLORREF ChromaKey();
 
 // Picks the event that gets to headline a gutter.
 //

@@ -79,6 +79,12 @@ public:
     // in.
     int hostOverride = 0;
 
+    // How far the elapsed part of a block is blended toward white. 0 means use
+    // the built-in value, which differs between the light and dark themes.
+    // Tunable because how much fading reads as "past" depends entirely on what
+    // the wallpaper behind the taskbar looks like.
+    double pastFade = 0;
+
     // ---- calendar source ----------------------------------------------
     std::wstring calendarUrl;
     std::vector<CalendarProfile> profiles;

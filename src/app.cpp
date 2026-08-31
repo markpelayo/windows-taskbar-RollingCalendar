@@ -126,8 +126,12 @@ HostMode EstablishHost(HWND hwnd, const TaskbarInfo& info) {
     ApplyHostStyle(hwnd, mode);
 
     if (mode == HostMode::Embedded) {
-        const bool wantLayered =
-            (override_ == 2) || (override_ == 0 && info.compositedShell);
+        // Layered by default, not only on a composited shell. It is what makes
+        // the background transparent, and that is worth having on every
+        // taskbar; on Windows 11 it is additionally the only way to be visible
+        // at all. hostOverride=1 is the escape hatch for a machine where
+        // layering itself misbehaves.
+        const bool wantLayered = (override_ != 1);
         if (wantLayered && !MakeCompositedChild(hwnd)) {
             diag::Log(L"host       : layering failed, falling back to floating");
             DetachFromTaskbar(hwnd);
@@ -135,6 +139,14 @@ HostMode EstablishHost(HWND hwnd, const TaskbarInfo& info) {
             mode = HostMode::Floating;
         }
     }
+
+    // The paint code fills its background with the chroma key only when the
+    // window is actually layered; otherwise that near-black would render as a
+    // slab. Told here rather than inferred there, because this is the only
+    // place that knows.
+    const bool layered =
+        (::GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & WS_EX_LAYERED) != 0;
+    App::Get().GetTimeline().SetTransparentBackground(layered);
 
     diag::Log(L"host       : %s%s (override=%d, composited=%s)",
               (mode == HostMode::Embedded) ? L"embedded" : L"floating",

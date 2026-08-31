@@ -52,6 +52,25 @@ constexpr COLORREF kSystemRed = RGB(0xFF, 0x3B, 0x30);
 // grow a flag for it.
 constexpr wchar_t kBadgeDot = static_cast<wchar_t>(0xE000);
 
+// The colour made transparent by the window's layered attributes. Kept here and
+// exposed through ChromaKey() so app.cpp cannot disagree with the paint code
+// about which colour disappears -- a mismatch there would show as an opaque
+// slab, with nothing in either file looking wrong.
+constexpr COLORREF kChromaKey = RGB(0x01, 0x02, 0x03);
+
+// How far the elapsed part of a block is blended toward white. The macOS
+// original uses 0.45 dark and 0.60 light; both are pushed further here because
+// the strip now sits on the taskbar itself rather than on a flat fill, and a
+// difference that read clearly against black does not against a photograph.
+constexpr double kPastFadeDark = 0.58;
+constexpr double kPastFadeLight = 0.68;
+
+// How far a block's outline is blended toward black. Also softened: a hard
+// black keyline looked like a border against a flat background and looks like
+// grime against a translucent one.
+constexpr double kOutlinePast = 0.18;
+constexpr double kOutlineFuture = 0.32;
+
 constexpr int kInnerGap = 8;         // logical px between a gutter and the strip
 constexpr int kTrackInset = 2;       // vertical clearance above and below blocks
 constexpr int kBlockOvershoot = 12;  // how far a long block may run past the strip
@@ -166,6 +185,7 @@ struct Timeline::Impl {
 
     // ---- state ----------------------------------------------------------
     std::wstring error;
+    bool transparent = false;
     uint64_t generation = 0;
     bool haveNow = false;
     Seconds lastNow = 0;
@@ -347,15 +367,19 @@ struct Timeline::Impl {
         left.urgent = haveCurrent && remaining <= cfg.urgentSeconds;
 
         if (Clock::IsSimulating()) {
-            // The only bold run in an otherwise normal-weight label. It has to
-            // be impossible to miss: every time shown beside it is a lie.
-            left.segments.push_back({L"(!Simulated!)", true, false});
+            // Red, bold, and flanked by exclamation marks. It has to be
+            // impossible to mistake for content: every time shown beside it is
+            // a lie, and someone who has forgotten they left Debug Time on will
+            // otherwise trust the strip and miss a meeting.
+            left.segments.push_back({L"!Simulated!", true, false, true});
         }
         const int runningNow = timeline::RunningCount(events, now);
-        if (runningNow > 1) left.segments.push_back({Badge(runningNow), false, false});
-        if (haveCurrent && cfg.showNowName) left.segments.push_back({current.title, false, true});
+        if (runningNow > 1) left.segments.push_back({Badge(runningNow), false, false, false});
+        if (haveCurrent && cfg.showNowName) {
+            left.segments.push_back({current.title, false, true, false});
+        }
         if (haveCurrent && cfg.showNowTimeLeft) {
-            left.segments.push_back({L"(" + FormatDuration(remaining) + L")", false, false});
+            left.segments.push_back({L"(" + FormatDuration(remaining) + L")", false, false, false});
         }
         FinishLabel(left, cap);
 
@@ -373,9 +397,9 @@ struct Timeline::Impl {
                 right.segments.push_back(
                     {L"(" + FormatDuration(next.duration()) + L")", false, false});
             }
-            if (cfg.showNextName) right.segments.push_back({next.title, false, true});
+            if (cfg.showNextName) right.segments.push_back({next.title, false, true, false});
             const int clashes = timeline::ClashCount(events, next, now);
-            if (clashes > 1) right.segments.push_back({Badge(clashes), false, false});
+            if (clashes > 1) right.segments.push_back({Badge(clashes), false, false, false});
         }
         FinishLabel(right, cap);
     }
@@ -443,7 +467,12 @@ struct Timeline::Impl {
 
             if (!text.empty()) {
                 SelectGuard font(dc, boldOf(seg) ? boldFont.get() : normalFont.get());
+                // An accented segment keeps its own colour whatever the label
+                // around it is doing, and hands it back afterwards so the next
+                // segment is unaffected.
+                if (seg.accent) ::SetTextColor(dc, kSystemRed);
                 ::TextOutW(dc, x, y, text.c_str(), static_cast<int>(text.size()));
+                if (seg.accent) ::SetTextColor(dc, colour);
                 x += TextWidth(text, boldOf(seg));
             }
 
@@ -513,7 +542,10 @@ struct Timeline::Impl {
             const int diameter = std::max(0, static_cast<int>(std::lround(radius * 2.0)));
 
             const COLORREF base = e->color.value_or(cfg.unmatchedColor);
-            const COLORREF pastBase = Highlight(base, dark ? 0.45 : 0.60);
+            const double fade = (Cfg().pastFade > 0.0)
+                                    ? Cfg().pastFade
+                                    : (dark ? kPastFadeDark : kPastFadeLight);
+            const COLORREF pastBase = Highlight(base, fade);
 
             COLORREF futureFill = base;
             COLORREF pastFill = pastBase;
@@ -555,13 +587,13 @@ struct Timeline::Impl {
             if (split > r.left) {
                 DcStateGuard state(dc);
                 ::IntersectClipRect(dc, r.left - 1, r.top - 1, split, r.bottom + 1);
-                SelectGuard pen(dc, PenFor(Blend(pastFill, RGB(0, 0, 0), 0.25)));
+                SelectGuard pen(dc, PenFor(Blend(pastFill, RGB(0, 0, 0), kOutlinePast)));
                 ::RoundRect(dc, r.left, r.top, r.right, r.bottom, diameter, diameter);
             }
             if (split < r.right) {
                 DcStateGuard state(dc);
                 ::IntersectClipRect(dc, split, r.top - 1, r.right + 1, r.bottom + 1);
-                SelectGuard pen(dc, PenFor(Blend(futureFill, RGB(0, 0, 0), 0.60)));
+                SelectGuard pen(dc, PenFor(Blend(futureFill, RGB(0, 0, 0), kOutlineFuture)));
                 ::RoundRect(dc, r.left, r.top, r.right, r.bottom, diameter, diameter);
             }
         }
@@ -648,6 +680,15 @@ void Timeline::UpdateFonts(int dpi) {
     im.cacheValid = false;
 }
 
+void Timeline::SetTransparentBackground(bool transparent) {
+    if (impl_->transparent == transparent) return;
+    impl_->transparent = transparent;
+    // Drop the cached brush so the next paint builds one for the new colour.
+    // SetBackground short-circuits on an unchanged colour, and the colour has
+    // not changed -- only what it is going to be.
+    impl_->bgBrush.reset();
+}
+
 void Timeline::SetEvents(std::vector<CalEvent> events) {
     events_ = std::move(events);
     impl_->generation++;
@@ -714,13 +755,25 @@ void Timeline::Paint(HDC dc, const RECT& bounds) {
     const Seconds now = im.haveNow ? im.lastNow : Clock::Now();
     const bool dark = TaskbarIsDark();
 
-    // A genuinely transparent child of Shell_TrayWnd is not available: layered
-    // windows cannot be child windows, and the shell paints its own background
-    // beneath us with no way to ask it for those pixels. So the background is
-    // approximated -- black under a dark taskbar, the light theme's near-white
-    // under a light one -- which matches the shell closely enough that the seam
-    // does not read as an edge.
-    const COLORREF background = dark ? RGB(0x00, 0x00, 0x00) : RGB(0xF3, 0xF3, 0xF3);
+    // The background is filled with a chroma key rather than an approximation
+    // of the taskbar's colour, and the window's layered attributes make that
+    // colour transparent. So the capsules and the labels sit directly on the
+    // bar, whatever the bar happens to look like -- which is the only approach
+    // that survives a user's wallpaper showing through acrylic, since there is
+    // no colour that could have been guessed for that.
+    //
+    // The key is a near-black that the drawing cannot produce by accident. Pure
+    // black would be the obvious choice and is the wrong one: the outline
+    // strokes and the now-line halo are blends toward black, so any of them
+    // landing exactly on it would punch a hole through the strip. Three
+    // separate off-by-one channels cannot arise from those blends.
+    //
+    // Antialiased glyph edges blend toward the key and therefore stay opaque,
+    // which leaves a faint dark fringe around the text. That is a fair trade:
+    // it reads as a soft shadow, and it is what keeps light text legible
+    // against a light wallpaper.
+    const COLORREF background =
+        im.transparent ? kChromaKey : (dark ? RGB(0x00, 0x00, 0x00) : RGB(0xF3, 0xF3, 0xF3));
     im.SetBackground(background);
 
     RECT full{0, 0, width, height};
@@ -801,6 +854,8 @@ std::wstring Timeline::TooltipText(Seconds now) const {
 // ------------------------------------------------------------- free functions
 
 namespace timeline {
+
+COLORREF ChromaKey() { return kChromaKey; }
 
 const CalEvent* PickChained(const std::vector<CalEvent>& candidates,
                             bool byEndSoonest,
