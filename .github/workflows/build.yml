@@ -77,9 +77,10 @@ jobs:
         with:
           files: RollingCalendar-windows-x64.zip
           body_path: CHANGELOG.md
-          # Marked as a pre-release deliberately. Everything below the build
-          # step proves is that the code compiles and survives startup on a
-          # machine with no real taskbar. Nobody has yet seen the strip appear,
-          # so calling this a finished release would be claiming evidence that
-          # does not exist. Promote it in the GitHub UI once it has been run.
-          prerelease: true
+          # A full release rather than a pre-release. This was marked as a
+          # pre-release while the code had never run on hardware; it now runs,
+          # on Windows 11 24H2 at two resolutions, alongside another widget in
+          # the same taskbar. The changelog is explicit about what remains
+          # untested, which is the honest way to ship this rather than a label
+          # that says "not finished" indefinitely.
+          prerelease: false

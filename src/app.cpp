@@ -187,6 +187,11 @@ bool App::Initialize(HINSTANCE instance) {
 
     Cfg().Load();
 
+    // Off unless asked for. The taskbar is somebody else's window, so the next
+    // machine where the strip fails to appear will need this evidence, and
+    // "attach a debugger" is not a reasonable thing to ask of anyone.
+    diag::Open(Cfg().diagnosticLog);
+
     // "Cleared stays cleared": the sample is seeded once, guarded by a flag,
     // rather than whenever the rule list happens to be empty. Otherwise Clear
     // Keyword Colors would undo itself on the next launch.

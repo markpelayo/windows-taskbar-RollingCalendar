@@ -1,13 +1,18 @@
-// diag.h — a temporary diagnostic log.
+// diag.h — an opt-in diagnostic log.
 //
-// This file exists to answer one question: why does a child of Shell_TrayWnd
+// This was written to answer one question: why does a child of Shell_TrayWnd
 // draw underneath the taskbar on some machines when the same technique works
-// for another application on the same taskbar. It is not a logging framework
-// and it is not meant to survive. Delete this module, its two call sites in
-// main.cpp and the diag:: lines elsewhere once the placement and z-order
-// behaviour is understood.
+// for another application on the same taskbar. The answer turned out to be the
+// Windows 11 composition island, and it took a log to find, because every
+// diagnostic the app could report said the window was correct.
 //
-// Verbosity is deliberately high but bounded: everything at startup, a
+// It stays for exactly that reason. The taskbar is somebody else's window and
+// its internals are not contractual, so the next machine where the strip does
+// not appear will need the same evidence, and "install a debugger" is not a
+// reasonable thing to ask of anyone. It is off unless `diagnosticLog=1` is set
+// under [hidden] in settings.ini, so nobody pays for it who is not debugging.
+//
+// When it is on, verbosity is high but bounded: everything at startup, a
 // heartbeat every ten seconds, and a full snapshot whenever the menu is opened,
 // which gives the user a way to mark the moment something looked wrong. That
 // works out at a couple of kilobytes a minute, and the file is truncated on
@@ -22,10 +27,13 @@
 namespace rc {
 namespace diag {
 
-// Opens the log beside the executable. Falls back to %APPDATA%\RollingCalendar
-// when that folder is not writable, which is the normal case for anything
-// unpacked into Program Files.
-void Open();
+// Opens the log beside the executable, falling back to
+// %APPDATA%\RollingCalendar when that folder is not writable, which is the
+// normal case for anything unpacked into Program Files.
+//
+// Does nothing unless `enabled`. Every other function in this file is a no-op
+// while the log is closed, so the call sites do not need to test anything.
+void Open(bool enabled);
 void Close();
 
 bool IsOpen();

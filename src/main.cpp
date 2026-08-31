@@ -84,9 +84,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance,
     icc.dwICC = ICC_STANDARD_CLASSES | ICC_DATE_CLASSES | ICC_UPDOWN_CLASS;
     ::InitCommonControlsEx(&icc);
 
-    // Temporary. Remove this, diag.h, diag.cpp and the diag:: calls in app.cpp
-    // and taskbar.cpp once the taskbar hosting behaviour is settled.
-    rc::diag::Open();
+    // diag::Open lives in App::Initialize rather than here, because whether to
+    // log at all is a setting and the settings have not been read yet.
 
     int exitCode = 1;
     if (rc::App::Get().Initialize(instance)) exitCode = rc::App::Get().Run();

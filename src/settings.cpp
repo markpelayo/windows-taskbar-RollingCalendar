@@ -258,6 +258,7 @@ void Settings::Load() {
     blockGap = ini.Positive(L"hidden", L"blockGap", 1);
     dayAnchorKeyword = ini.Text(L"hidden", L"dayAnchorKeyword", L"sleep");
     hostOverride = static_cast<int>(ini.Number(L"hidden", L"hostOverride", 0));
+    diagnosticLog = ini.Bool(L"hidden", L"diagnosticLog", false);
     if (hostOverride < 0 || hostOverride > 3) hostOverride = 0;
     pastFade = ini.Number(L"hidden", L"pastFade", 0);
     if (pastFade < 0.0 || pastFade >= 1.0) pastFade = 0;   // 1.0 would be pure white
@@ -453,6 +454,7 @@ void Settings::Save() {
     AppendNumber(&out, L"blockCornerRadius", blockCornerRadius);
     AppendText(&out, L"dayAnchorKeyword", dayAnchorKeyword);
     AppendNumber(&out, L"hostOverride", hostOverride);
+    AppendBool(&out, L"diagnosticLog", diagnosticLog);
     AppendNumber(&out, L"pastFade", pastFade);
     AppendNumber(&out, L"blockHeight", blockHeight);
     AppendNumber(&out, L"innerGap", innerGap);

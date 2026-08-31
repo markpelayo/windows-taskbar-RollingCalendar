@@ -1,4 +1,4 @@
-// diag.cpp — see diag.h. Temporary.
+// diag.cpp — see diag.h.
 
 #include "diag.h"
 
@@ -66,7 +66,8 @@ std::wstring TryOpenIn(const std::wstring& dir) {
 
 }  // namespace
 
-void Open() {
+void Open(bool enabled) {
+    if (!enabled) return;
     if (g_file != INVALID_HANDLE_VALUE) return;
 
     // Beside the executable first, because that is where someone looking for it

@@ -96,6 +96,12 @@ public:
     // in.
     int hostOverride = 0;
 
+    // Writes RollingCalendar-log.txt beside the executable, describing the
+    // taskbar, the strip's window state and the shell's child z-order. Off by
+    // default; the one thing worth turning on before reporting that the strip
+    // does not appear.
+    bool diagnosticLog = false;
+
     // How far the elapsed part of a block is blended toward white. 0 means use
     // the built-in value, which differs between the light and dark themes.
     // Tunable because how much fading reads as "past" depends entirely on what
