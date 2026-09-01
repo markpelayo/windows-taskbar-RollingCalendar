@@ -3,7 +3,7 @@
   <assemblyIdentity
       type="win32"
       name="markpelayo.RollingCalendar"
-      version="1.0.0.0"
+      version="1.1.0.0"
       processorArchitecture="amd64"/>
 
   <description>Rolling Calendar - today's calendar as a timeline in the Windows taskbar</description>

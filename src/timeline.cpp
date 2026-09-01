@@ -404,7 +404,7 @@ struct Timeline::Impl {
             // impossible to mistake for content: every time shown beside it is
             // a lie, and someone who has forgotten they left Debug Time on will
             // otherwise trust the strip and miss a meeting.
-            left.segments.push_back({L"!Simulated!", true, false, true});
+            left.segments.push_back({L"! Simulated !", true, false, true});
         }
         const int runningNow = timeline::RunningCount(events, now);
         if (runningNow > 1) left.segments.push_back({Badge(runningNow), false, false, false});

@@ -15,7 +15,6 @@
 #include <cwchar>
 
 #include "common.h"
-#include "diag.h"
 #include "timeline.h"
 
 namespace rc {
@@ -77,15 +76,38 @@ BOOL CALLBACK ScanForNotifyArea(HWND child, LPARAM param) {
 
 // SystemUsesLightTheme, missing on builds that predate the setting. Those
 // defaulted to a dark taskbar, so absence reads as dark.
+//
+// Memoised, in the same shape and for the same reason as IsDarkMode() in
+// common.cpp: the paint path asks for the taskbar's text colour four times a
+// second -- twice to decide whether the bar is dark, once to colour the labels,
+// and once more because the strip is measured and painted separately -- and the
+// answer changes only when the user flips a switch in Settings. A registry read
+// per question is a syscall per question, for as many weeks as the machine is
+// left on.
+//
+// The age test is not the mechanism, it is the floor. App calls
+// ForgetTaskbarTheme() on WM_SETTINGCHANGE, so a theme change is picked up on
+// the very next repaint; the two seconds only cover a machine that never sends
+// the notification. Touched from the UI thread only, so it is unsynchronised.
+ULONGLONG g_themeChecked = 0;
+bool g_themePrimed = false;
+bool g_themeIsLight = false;
+
 bool TaskbarUsesLightTheme() {
+    const ULONGLONG now = ::GetTickCount64();
+    if (g_themePrimed && now - g_themeChecked < 2000ull) return g_themeIsLight;
+
     DWORD value = 0;
     DWORD size = sizeof(value);
     const LSTATUS st = ::RegGetValueW(
         HKEY_CURRENT_USER,
         L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
         L"SystemUsesLightTheme", RRF_RT_REG_DWORD, nullptr, &value, &size);
-    if (st != ERROR_SUCCESS) return false;
-    return value != 0;
+
+    g_themeIsLight = (st == ERROR_SUCCESS) && (value != 0);
+    g_themeChecked = now;
+    g_themePrimed = true;
+    return g_themeIsLight;
 }
 
 }  // namespace
@@ -163,12 +185,6 @@ TaskbarInfo BuildTaskbarInfo(HWND tray) {
                         nullptr) != nullptr;
 
     info.valid = true;
-    diag::Log(L"taskbar    : hwnd=%p bounds=(%ld,%ld,%ld,%ld) edge=%d dpi=%d "
-              L"notify=%s composited=%s monitor=%s%s",
-              tray, info.bounds.left, info.bounds.top, info.bounds.right, info.bounds.bottom,
-              static_cast<int>(info.edge), info.dpi, info.hasNotifyArea ? L"yes" : L"no",
-              info.compositedShell ? L"YES" : L"no", info.monitorDevice.c_str(),
-              info.isPrimaryMonitor ? L" (primary)" : L"");
     return info;
 }
 
@@ -240,8 +256,6 @@ TaskbarInfo QueryTaskbar(const std::wstring& preferredDevice) {
         for (const TaskbarInfo& bar : bars) {
             if (_wcsicmp(bar.monitorDevice.c_str(), preferredDevice.c_str()) == 0) return bar;
         }
-        diag::Log(L"taskbar    : preferred display %s has no taskbar, using the primary",
-                  preferredDevice.c_str());
     }
 
     for (const TaskbarInfo& bar : bars) {
@@ -268,13 +282,10 @@ bool MakeCompositedChild(HWND child) {
     // so there is no colour to guess.
     if (!::SetLayeredWindowAttributes(child, timeline::ChromaKey(), 255,
                                       LWA_COLORKEY | LWA_ALPHA)) {
-        const DWORD err = ::GetLastError();
-        diag::Log(L"composite  : SetLayeredWindowAttributes FAILED err=%lu", err);
         ::SetWindowLongPtrW(child, GWL_EXSTYLE, ex);
         return false;
     }
 
-    diag::Log(L"composite  : layered child established");
     return true;
 }
 
@@ -300,19 +311,12 @@ HostMode EmbedInTaskbar(HWND child, const TaskbarInfo& info) {
     // us. It is built entirely out of documented calls, but the shell never
     // promised to tolerate a stranger among its children, so the result is
     // verified rather than assumed.
-    ::SetLastError(0);
-    const HWND previous = ::SetParent(child, info.window);
-    const DWORD err = ::GetLastError();
-    diag::Log(L"embed      : SetParent -> previous=%p err=%lu, GetParent now=%p, want=%p",
-              previous, err, ::GetParent(child), info.window);
+    ::SetParent(child, info.window);
 
     // SetParent returns the previous parent, and null is both "it failed" and
     // "it had no parent". So the result is confirmed by asking, not by the
     // return value.
-    if (::GetParent(child) != info.window) {
-        diag::Log(L"embed      : FAILED, falling back to a floating window");
-        return HostMode::Floating;
-    }
+    if (::GetParent(child) != info.window) return HostMode::Floating;
 
     // A child window cannot be topmost, and leaving the bit set confuses the
     // z-order bookkeeping that SetWindowPos does on the next move.
@@ -377,16 +381,8 @@ void PositionWidget(HWND child,
     // rather than absent -- you can see the strip's colours bleeding faintly
     // through the bar, which reads as a rendering fault rather than a z-order
     // one.
-    ::SetLastError(0);
-    const BOOL ok = ::SetWindowPos(child, (mode == HostMode::Floating) ? HWND_TOPMOST : HWND_TOP,
-                                   x, y, cx, cy, SWP_NOACTIVATE);
-    if (!ok) {
-        diag::Log(L"position   : SetWindowPos FAILED err=%lu (x=%d y=%d cx=%d cy=%d)",
-                  ::GetLastError(), x, y, cx, cy);
-    } else {
-        diag::Log(L"position   : x=%d y=%d cx=%d cy=%d mode=%s", x, y, cx, cy,
-                  (mode == HostMode::Embedded) ? L"embedded" : L"floating");
-    }
+    ::SetWindowPos(child, (mode == HostMode::Floating) ? HWND_TOPMOST : HWND_TOP, x, y, cx, cy,
+                   SWP_NOACTIVATE);
 }
 
 void RaiseWithinTaskbar(HWND child) {
@@ -454,8 +450,6 @@ BOOL CALLBACK ForeignChildProc(HWND child, LPARAM param) {
         Span& s = scan->spans[scan->count++];
         s.start = scan->horizontal ? r.left : r.top;
         s.end = scan->horizontal ? r.right : r.bottom;
-        diag::Log(L"placement  : foreign widget %-32s %ld..%ld", cls,
-                  static_cast<long>(s.start), static_cast<long>(s.end));
     }
     return TRUE;
 }
@@ -541,18 +535,11 @@ int AutoOffsetAlong(const TaskbarInfo& info, int width, int offsetFromRight) {
         } else {
             // No room. Sitting beside the tray and overlapping is the least
             // bad outcome: it is at least where the user expects to find it,
-            // and Move widget exists for the rest. Worth saying out loud in
-            // the log, because from the outside this looks like the placement
-            // logic having simply ignored the other widget.
+            // and Move widget exists for the rest.
             offset = limit - width;
-            diag::Log(L"placement  : no clear gap for a %d px strip before %d "
-                      L"-- overlapping deliberately",
-                      width, limit);
         }
     }
 
-    diag::Log(L"placement  : width=%d barLength=%d offsetFromRight=%d -> offset=%d", width,
-              barLength, offsetFromRight, offset);
 
     return std::max(0, std::min(offset, std::max(0, barLength - width)));
 }
@@ -564,6 +551,8 @@ COLORREF TaskbarTextColor() {
     // metric would put black text on a black bar for most users.
     return TaskbarUsesLightTheme() ? RGB(0x1A, 0x1A, 0x1A) : RGB(0xFF, 0xFF, 0xFF);
 }
+
+void ForgetTaskbarTheme() { g_themePrimed = false; }
 
 UINT RegisterTaskbarCreatedMessage() {
     return ::RegisterWindowMessageW(L"TaskbarCreated");

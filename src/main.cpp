@@ -13,7 +13,6 @@
 
 #include "app.h"
 #include "common.h"
-#include "diag.h"
 
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "ole32.lib")
@@ -84,13 +83,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance,
     icc.dwICC = ICC_STANDARD_CLASSES | ICC_DATE_CLASSES | ICC_UPDOWN_CLASS;
     ::InitCommonControlsEx(&icc);
 
-    // diag::Open lives in App::Initialize rather than here, because whether to
-    // log at all is a setting and the settings have not been read yet.
-
+    // Non-zero unless Run() says otherwise, so a failure to initialise is
+    // reported to whoever launched the process rather than looking like a
+    // clean exit.
     int exitCode = 1;
     if (rc::App::Get().Initialize(instance)) exitCode = rc::App::Get().Run();
-
-    rc::diag::Close();
 
     if (SUCCEEDED(com)) ::CoUninitialize();
     if (instanceLock) ::CloseHandle(instanceLock);

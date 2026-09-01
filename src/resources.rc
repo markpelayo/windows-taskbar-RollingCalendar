@@ -10,8 +10,8 @@
 IDI_APPICON ICON "app.ico"
 
 VS_VERSION_INFO VERSIONINFO
-    FILEVERSION     1,0,0,0
-    PRODUCTVERSION  1,0,0,0
+    FILEVERSION     1,1,0,0
+    PRODUCTVERSION  1,1,0,0
     FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
 #ifdef _DEBUG
     FILEFLAGS       VS_FF_DEBUG
@@ -28,12 +28,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "Mark Pelayo"
             VALUE "FileDescription",  "Rolling Calendar"
-            VALUE "FileVersion",      "1.0.0.0"
+            VALUE "FileVersion",      "1.1.0.0"
             VALUE "InternalName",     "RollingCalendar"
             VALUE "LegalCopyright",   "MIT licensed. Copyright (c) Mark Pelayo"
             VALUE "OriginalFilename", "RollingCalendar.exe"
             VALUE "ProductName",      "Rolling Calendar"
-            VALUE "ProductVersion",   "1.0.0.0"
+            VALUE "ProductVersion",   "1.1.0.0"
             VALUE "Comments",         "Today's calendar as a timeline in the Windows taskbar"
         END
     END

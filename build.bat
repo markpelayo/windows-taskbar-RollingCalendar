@@ -48,9 +48,7 @@ set CXXFLAGS=%CXXFLAGS% /wd4100 /wd4996
 
 set LIBS=kernel32.lib user32.lib gdi32.lib advapi32.lib shell32.lib comctl32.lib comdlg32.lib ole32.lib oleaut32.lib winhttp.lib winmm.lib taskschd.lib secur32.lib shlwapi.lib sapi.lib
 
-rem src\diag.cpp is temporary -- a diagnostic log for the taskbar hosting
-rem behaviour. Remove it from this list when the module goes.
-set SOURCES=src\main.cpp src\app.cpp src\menu.cpp src\timeline.cpp src\taskbar.cpp src\daylist.cpp src\settings.cpp src\ics.cpp src\calsource.cpp src\demodata.cpp src\keywords.cpp src\fetch.cpp src\alerts.cpp src\soundhours.cpp src\westminster.cpp src\autostart.cpp src\dialogs.cpp src\common.cpp src\tzmap.cpp src\diag.cpp
+set SOURCES=src\main.cpp src\app.cpp src\menu.cpp src\timeline.cpp src\taskbar.cpp src\daylist.cpp src\settings.cpp src\ics.cpp src\calsource.cpp src\demodata.cpp src\keywords.cpp src\fetch.cpp src\alerts.cpp src\soundhours.cpp src\westminster.cpp src\autostart.cpp src\dialogs.cpp src\common.cpp src\tzmap.cpp
 
 echo Compiling resources...
 rc /nologo /fo %OUT%\resources.res src\resources.rc

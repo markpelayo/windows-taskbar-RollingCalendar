@@ -112,7 +112,6 @@ private:
     // is the difference between a widget that works and one that appears
     // broken every morning.
     Seconds retryDelay_ = 0;
-    unsigned long fetchToken_ = 0;
 
     int widgetWidth_ = 0;
     int widgetThickness_ = 0;

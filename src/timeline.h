@@ -54,7 +54,6 @@ struct GutterLabel {
 // paint it.
 struct Frame {
     Seconds now = 0;
-    std::vector<CalEvent> events;
     GutterLabel left;
     GutterLabel right;
     std::wstring error;       // when set, replaces all drawing

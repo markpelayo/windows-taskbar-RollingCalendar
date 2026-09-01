@@ -265,7 +265,6 @@ void Settings::Load() {
     blockGap = ini.Positive(L"hidden", L"blockGap", 1);
     dayAnchorKeyword = ini.Text(L"hidden", L"dayAnchorKeyword", L"sleep");
     hostOverride = static_cast<int>(ini.Number(L"hidden", L"hostOverride", 0));
-    diagnosticLog = ini.Bool(L"hidden", L"diagnosticLog", false);
     if (hostOverride < 0 || hostOverride > 3) hostOverride = 0;
     pastFade = ini.Number(L"hidden", L"pastFade", 0);
     if (pastFade < 0.0 || pastFade >= 1.0) pastFade = 0;   // 1.0 would be pure white
@@ -454,7 +453,6 @@ void Settings::Save() {
     AppendNumber(&out, L"blockCornerRadius", blockCornerRadius);
     AppendText(&out, L"dayAnchorKeyword", dayAnchorKeyword);
     AppendNumber(&out, L"hostOverride", hostOverride);
-    AppendBool(&out, L"diagnosticLog", diagnosticLog);
     AppendNumber(&out, L"pastFade", pastFade);
     AppendNumber(&out, L"innerGap", innerGap);
     AppendLine(&out, L"");
@@ -663,7 +661,7 @@ void Settings::AddProfile(const std::wstring& name, const std::wstring& link) {
     ActivateProfile(name);  // saves
 }
 
-void Settings::RenameProfile(const std::wstring& oldName, const std::wstring& newName) {
+void Settings::RenameProfile(std::wstring oldName, const std::wstring& newName) {
     if (newName.empty()) return;
 
     bool renamed = false;
@@ -685,7 +683,7 @@ void Settings::RenameProfile(const std::wstring& oldName, const std::wstring& ne
     Save();
 }
 
-void Settings::RemoveProfile(const std::wstring& name) {
+void Settings::RemoveProfile(std::wstring name) {
     const size_t before = profiles.size();
     profiles.erase(std::remove_if(profiles.begin(), profiles.end(),
                                   [&name](const CalendarProfile& p) {

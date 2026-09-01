@@ -8,7 +8,7 @@
 # only prerequisite is MSVC and the Windows SDK.
 
 cmake_minimum_required(VERSION 3.20)
-project(RollingCalendar VERSION 1.0.0 LANGUAGES CXX)
+project(RollingCalendar VERSION 1.1.0 LANGUAGES CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "Rolling Calendar embeds itself in the Windows taskbar. There is nothing here to build on another platform.")
@@ -45,8 +45,6 @@ add_executable(RollingCalendar WIN32
     src/dialogs.cpp
     src/common.cpp
     src/tzmap.cpp
-    # Temporary: diagnostic log for the taskbar hosting behaviour.
-    src/diag.cpp
     src/resources.rc
 )
 

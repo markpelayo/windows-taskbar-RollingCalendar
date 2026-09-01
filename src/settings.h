@@ -100,19 +100,16 @@ public:
     // How the strip is hosted, for when the automatic choice is wrong on a
     // particular machine. 0 auto, 1 plain child, 2 layered child, 3 floating.
     //
-    // Automatic means: a layered child inside the taskbar when the shell
-    // renders through a composition island (Windows 11), a plain child
-    // otherwise. This override exists because the alternative to a one-line
-    // edit in an INI file is a rebuild, and the failure it works around is a
-    // widget that cannot be seen -- which is not a state to leave anyone stuck
-    // in.
+    // Automatic means a layered child inside the taskbar, falling back to a
+    // floating window if the layering cannot be arranged. Layered on every
+    // taskbar rather than only on the Windows 11 composition island, because
+    // being layered is also what makes the background transparent, and that is
+    // worth having everywhere.
+    //
+    // This override exists because the alternative to a one-line edit in an INI
+    // file is a rebuild, and the failure it works around is a widget that
+    // cannot be seen -- which is not a state to leave anyone stuck in.
     int hostOverride = 0;
-
-    // Writes RollingCalendar-log.txt beside the executable, describing the
-    // taskbar, the strip's window state and the shell's child z-order. Off by
-    // default; the one thing worth turning on before reporting that the strip
-    // does not appear.
-    bool diagnosticLog = false;
 
     // How far the elapsed part of a block is blended toward white. 0 means use
     // the built-in value, which differs between the light and dark themes.
@@ -131,8 +128,12 @@ public:
 
     bool hasCalendarInput() const { return !calendarUrl.empty(); }
     void AddProfile(const std::wstring& name, const std::wstring& link);
-    void RenameProfile(const std::wstring& oldName, const std::wstring& newName);
-    void RemoveProfile(const std::wstring& name);
+    // The two names below are taken by value, not by reference. Both callers
+    // pass a profile's own name straight out of `profiles`, and both functions
+    // then rewrite or erase the element that name lives in -- so a reference
+    // would be aliasing the string it is being compared against.
+    void RenameProfile(std::wstring oldName, const std::wstring& newName);
+    void RemoveProfile(std::wstring name);
     void ActivateProfile(const std::wstring& name);
     std::wstring SourceDisplayName() const;
 

@@ -36,7 +36,6 @@
 #include "calsource.h"
 #include "common.h"
 #include "demodata.h"
-#include "diag.h"
 #include "fetch.h"
 #include "ics.h"
 #include "keywords.h"
@@ -116,7 +115,6 @@ HostMode EstablishHost(HWND hwnd, const TaskbarInfo& info) {
 
     const int override_ = Cfg().hostOverride;
     if (override_ == 3) {
-        diag::Log(L"host       : floating, by hostOverride");
         DetachFromTaskbar(hwnd);
         ApplyHostStyle(hwnd, HostMode::Floating);
         return HostMode::Floating;
@@ -133,7 +131,6 @@ HostMode EstablishHost(HWND hwnd, const TaskbarInfo& info) {
         // layering itself misbehaves.
         const bool wantLayered = (override_ != 1);
         if (wantLayered && !MakeCompositedChild(hwnd)) {
-            diag::Log(L"host       : layering failed, falling back to floating");
             DetachFromTaskbar(hwnd);
             ApplyHostStyle(hwnd, HostMode::Floating);
             mode = HostMode::Floating;
@@ -148,13 +145,6 @@ HostMode EstablishHost(HWND hwnd, const TaskbarInfo& info) {
         (::GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & WS_EX_LAYERED) != 0;
     App::Get().GetTimeline().SetTransparentBackground(layered);
 
-    diag::Log(L"host       : %s%s (override=%d, composited=%s)",
-              (mode == HostMode::Embedded) ? L"embedded" : L"floating",
-              (mode == HostMode::Embedded &&
-               (::GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & WS_EX_LAYERED))
-                  ? L" + layered"
-                  : L"",
-              override_, info.compositedShell ? L"yes" : L"no");
     return mode;
 }
 
@@ -186,11 +176,6 @@ bool App::Initialize(HINSTANCE instance) {
     instance_ = instance;
 
     Cfg().Load();
-
-    // Off unless asked for. The taskbar is somebody else's window, so the next
-    // machine where the strip fails to appear will need this evidence, and
-    // "attach a debugger" is not a reasonable thing to ask of anyone.
-    diag::Open(Cfg().diagnosticLog);
 
     // "Cleared stays cleared": the sample is seeded once, guarded by a flag,
     // rather than whenever the rule list happens to be empty. Otherwise Clear
@@ -259,7 +244,6 @@ bool App::Initialize(HINSTANCE instance) {
     EnsureTrayIcon();
 
     RelayoutNow();
-    diag::Snapshot(L"startup complete", hwnd_, taskbar_.window);
 
     ::SetTimer(hwnd_, kTickTimerId, kTickIntervalMs, nullptr);
 
@@ -305,7 +289,7 @@ void App::Refresh() {
         return;
     }
 
-    fetchToken_ = StartFetch(Cfg().calendarUrl, hwnd_);
+    StartFetch(Cfg().calendarUrl, hwnd_);
 }
 
 void App::ReloadAfterSourceChange() {
@@ -441,10 +425,6 @@ void App::RelayoutNow() {
     widgetWidth_ = std::max(1, timeline_.Measure(Clock::Now()));
     widgetThickness_ = std::max(1, UsableThickness(taskbar_));
 
-    diag::Log(L"relayout   : measured width=%d thickness=%d "
-              L"(timelineWidth=%.0f maxLabelWidth=%.0f windowMinutes=%.0f)",
-              widgetWidth_, widgetThickness_, Cfg().timelineWidth, Cfg().maxLabelWidth,
-              Cfg().windowMinutes);
 
     PositionWidget(hwnd_, taskbar_, hostMode_,
                    AutoOffsetAlong(taskbar_, widgetWidth_, Cfg().widgetOffsetFromRight),
@@ -464,8 +444,6 @@ void App::BeginMoveWidget() {
 void App::RelocateToTaskbar() {
     if (!hwnd_) return;
 
-    diag::Log(L"relocate   : requested display %s",
-              Cfg().monitorDevice.empty() ? L"(primary)" : Cfg().monitorDevice.c_str());
 
     // Detach first. Re-parenting straight from one taskbar to another leaves
     // the window briefly a child of two things as far as the old bar's layout
@@ -484,7 +462,6 @@ void App::RelocateToTaskbar() {
     // it does not describe a strip that has gone elsewhere.
     g_lastTooltip.clear();
 
-    diag::Snapshot(L"after relocate", hwnd_, taskbar_.window);
 }
 
 void App::ResetWidgetPosition() {
@@ -543,13 +520,6 @@ void App::OnTick() {
         if (hostMode_ == HostMode::Embedded) RaiseWithinTaskbar(hwnd_);
     }
 
-    // A heartbeat every ten seconds. Temporary, along with the rest of diag.
-    static int diagPoll = 0;
-    if (++diagPoll >= 10) {
-        diagPoll = 0;
-        diag::Snapshot(L"heartbeat", hwnd_, taskbar_.window);
-    }
-
     InvalidateStrip();
 
     // Alerts see every loaded event, not the dropdown's cycle: a block outside
@@ -581,6 +551,11 @@ void App::OnTaskbarCreated() {
 }
 
 void App::OnThemeChanged() {
+    // First, because the label cache is keyed on the answer and the fonts are
+    // rebuilt below: a repaint that ran against the memoised colour would draw
+    // one frame in the old theme.
+    ForgetTaskbarTheme();
+
     // Both the fonts and every cached label depend on the theme: the label
     // cache is keyed partly on dark mode, and the shell can change its menu
     // font at the same time it changes colours.
@@ -623,7 +598,15 @@ void App::EnsureTrayIcon() {
 
 void App::UpdateTrayTooltip(const std::wstring& text) {
     if (!trayIconAdded_ || !hwnd_) return;
-    if (text == g_lastTooltip) return;
+    if (text == g_lastTooltip) {
+        // The interval has to be spent whether or not the text moved. Leaving
+        // the stamp alone here meant the gate in OnTick stayed open for as long
+        // as the tooltip said the same thing, so TooltipText -- which filters
+        // the whole event list twice and scores the candidates pairwise -- was
+        // being composed once a second to be thrown away.
+        lastTooltipWrite_ = RealNow();
+        return;
+    }
 
     NOTIFYICONDATAW nid{};
     nid.cbSize = sizeof(nid);
@@ -643,18 +626,19 @@ void App::UpdateTrayTooltip(const std::wstring& text) {
 void App::ShowMenu(POINT screenPt) {
     if (!hwnd_) return;
 
-    // Opening the menu is the one thing the user can do deliberately at a
-    // moment when something looks wrong, so it is worth a full snapshot. Goes
-    // with the rest of diag when that is removed.
-    diag::Snapshot(L"menu opened", hwnd_, taskbar_.window);
-
     // Built once and held for the life of the popup: menu.h says the rows are
     // retained for owner-drawing and must outlive the HMENU, and `rows` is
     // declared first so it is destroyed last.
     const std::vector<DayRow> rows = daylist::BuildRows(CycleEvents(), Clock::Now(), zone_);
 
     UniqueMenu popup = menu::Build(*this, rows);
-    if (!popup) return;
+    if (!popup) {
+        // Build allocates the owner-draw payloads as it goes, so they exist
+        // even when the menu it was filling does not. Nothing is going to be
+        // drawn from them now.
+        menu::ReleaseItemData();
+        return;
+    }
 
     // Before TrackPopupMenuEx, not after. Without it the menu only appears when
     // this process happens to hold foreground rights already, which makes it

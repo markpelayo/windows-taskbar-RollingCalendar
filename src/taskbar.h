@@ -146,7 +146,12 @@ void RaiseWithinTaskbar(HWND child);
 // is black under a default Windows 11 setup, while the taskbar follows the
 // separate system theme and draws white. Reading the theme preference directly
 // is the only way to match what is beside us.
+// The answer is memoised, because the paint path asks for it several times a
+// second and the registry does not get any cheaper to read. Call this when the
+// shell says the theme has changed, so the next repaint reads it afresh rather
+// than waiting out the cache's own age limit.
 COLORREF TaskbarTextColor();
+void ForgetTaskbarTheme();
 
 // The shell broadcasts "TaskbarCreated" to every top-level window when Explorer
 // restarts. That is the moment an embedded widget silently loses its parent.

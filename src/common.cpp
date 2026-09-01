@@ -38,7 +38,7 @@ namespace rc {
 
 const wchar_t* kAppName = L"RollingCalendar";
 const wchar_t* kDisplayName = L"Rolling Calendar";
-const wchar_t* kVersion = L"1.0.0";
+const wchar_t* kVersion = L"1.1.0";
 const wchar_t* kProjectUrl = L"https://github.com/markpelayo/windows-taskbar-RollingCalendar";
 
 namespace {
