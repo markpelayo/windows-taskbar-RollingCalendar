@@ -81,6 +81,7 @@ struct ItemData {
     RowKind kind = RowKind::Caption;
     std::wstring text;              // caption text, or a category name
     std::wstring detail;            // the dim tail of a category row
+    std::wstring alert;             // a caption's red, bold tail; usually empty
     COLORREF swatch = 0;
     bool hasSwatch = false;
     DayRow row;                     // meaningful only when kind == Day
@@ -235,10 +236,13 @@ void AddOwnerDrawn(HMENU m, UINT id, ItemData* data, bool enabled) {
     ::InsertMenuItemW(m, ::GetMenuItemCount(m), TRUE, &mii);
 }
 
-void AddCaptionRow(HMENU m, const std::wstring& text) {
+// `alert` is drawn after the caption in red and bold, for the one thing on a
+// caption row that must not read as more grey context.
+void AddCaptionRow(HMENU m, const std::wstring& text, const std::wstring& alert = std::wstring()) {
     ItemData* data = new ItemData();
     data->kind = RowKind::Caption;
     data->text = text;
+    data->alert = alert;
     AddOwnerDrawn(m, 0, data, false);
 }
 
@@ -297,6 +301,15 @@ std::vector<std::wstring> CategoryList() {
     for (const keywords::CategorySummary& c : keywords::Categories()) list.push_back(c.name);
     list.push_back(keywords::kUncategorized);
     return list;
+}
+
+// Tolerance rather than equality throughout: these values have been through a
+// text file, and 24 written and read back is not bit-for-bit 24.
+bool IsOneOf(const double* values, size_t count, double v) {
+    for (size_t i = 0; i < count; ++i) {
+        if (std::fabs(values[i] - v) < 0.01) return true;
+    }
+    return false;
 }
 
 bool IsPresetWindow(const SoundWindow& w) {
@@ -468,6 +481,20 @@ void DrawDayRow(HDC dc, const DRAWITEMSTRUCT* dis, const ItemData& item) {
         const std::wstring text = row.isSeparator ? row.separatorText : row.title;
         DrawTextAt(dc, x0, rc, text, DimText(selected));
         return;
+    }
+
+    if (row.isCurrent && !selected) {
+        // A faint band behind the row in progress, drawn before its text. The
+        // tint is the menu's own background nudged a tenth of the way toward
+        // its text colour, so it is a shade rather than a hue: any colour with
+        // a hue would be read as one of the category colours, which are the
+        // only coloured thing in this list and mean something else entirely.
+        // Deriving it from the system colours is also what keeps it faint under
+        // a dark menu, where a fixed light grey would glare.
+        const COLORREF tint =
+            Blend(::GetSysColor(COLOR_MENU), ::GetSysColor(COLOR_MENUTEXT), 0.09);
+        UniqueBrush band(::CreateSolidBrush(tint));
+        ::FillRect(dc, &rc, band.get());
     }
 
     if (row.isCurrent) {
@@ -750,6 +777,23 @@ void ChooseVoice(const std::wstring& id) {
 
 // -------------------------------------------------------------- submenu build
 
+// The value the strip ships with, named once here so the label and the title
+// cannot disagree about which row carries the "(default)" suffix.
+const double kDefaultWindowMinutes = 120;
+const int kDefaultTimelineWidth = 250;
+const double kDefaultLabelWidth = 360;
+
+// "±1 hour", from the row that is in force. A hand-edited span with no row of
+// its own is still reported rather than being shown as the default.
+std::wstring TimeRangeLabel(double windowMinutes) {
+    for (size_t i = 0; i < std::size(kTimeRanges); ++i) {
+        if (std::fabs(windowMinutes - kTimeRanges[i]) < 0.01) {
+            return std::wstring(kPlusMinus) + kTimeRangeNames[i];
+        }
+    }
+    return std::wstring(kPlusMinus) + Format(L"%g minutes", windowMinutes / 2);
+}
+
 UniqueMenu BuildTimeRange() {
     UniqueMenu m(::CreatePopupMenu());
     const double current = Cfg().windowMinutes;
@@ -757,8 +801,9 @@ UniqueMenu BuildTimeRange() {
         // Tolerance rather than equality: the value has been through a text
         // file, and 120 written and read back is not bit-for-bit 120.
         const bool on = std::fabs(current - kTimeRanges[i]) < 0.01;
-        AddText(m.get(), IDM_TIMERANGE_BASE + i,
-                std::wstring(kPlusMinus) + kTimeRangeNames[i], on, true, true);
+        std::wstring label = std::wstring(kPlusMinus) + kTimeRangeNames[i];
+        if (std::fabs(kTimeRanges[i] - kDefaultWindowMinutes) < 0.01) label += L" (default)";
+        AddText(m.get(), IDM_TIMERANGE_BASE + i, label, on, true, true);
     }
     AddSeparator(m.get());
     AddNote(m.get(), L"A wider range shows more, at a smaller size");
@@ -771,6 +816,7 @@ UniqueMenu BuildTimelineWidth() {
     for (int i = 0; i < kWidthCount; ++i) {
         const int width = WidthOption(i);
         std::wstring label = Format(L"%d pt", width);
+        if (width == kDefaultTimelineWidth) label += L" (default)";
         if (i == 0) label += std::wstring(kEmDash) + L"smallest";
         if (i == kWidthCount - 1) label += std::wstring(kEmDash) + L"largest";
         const bool on = std::fabs(cfg.timelineWidth - width) < 0.01;
@@ -806,7 +852,7 @@ UniqueMenu BuildLabelLength(HDC dc) {
         const double points = kLabelWidths[i];
         std::wstring label = Format(L"%d pt%sabout %d characters", static_cast<int>(points),
                                     kEmDash, CharactersFor(dc, points));
-        if (std::fabs(points - 360) < 0.01) label += L" (default)";
+        if (std::fabs(points - kDefaultLabelWidth) < 0.01) label += L" (default)";
         const bool on = std::fabs(cfg.maxLabelWidth - points) < 0.01;
         AddText(m.get(), IDM_LABELWIDTH_BASE + i, label, on, true, true);
     }
@@ -981,14 +1027,10 @@ UniqueMenu BuildAlertVoice() {
 // ------------------------------------------------------------------ text size
 
 // Three steps above the shell's size, which is what the default is. Chosen as
-// noticeable rather than fine-grained: anyone who wants 11.5 pt can add it, and
-// a submenu of every size between 9 and 16 would be a scrolling list nobody
-// reads.
+// noticeable rather than fine-grained: anyone who wants 11.5 pt can type it,
+// and a submenu of every size between 9 and 16 would be a scrolling list
+// nobody reads.
 const double kFontSizeChoices[] = {11.0, 13.0, 15.0};
-
-// See the comment where this is used: the three text-size id ranges are twenty
-// apart, so the user's own list has to stop at twenty.
-constexpr size_t kMaxFontSizes = 20;
 
 std::wstring FontSizeLabel(double points) {
     if (points <= 0) return L"Default (matches the taskbar)";
@@ -1014,29 +1056,89 @@ UniqueMenu BuildFontSize() {
                 FontSizeLabel(kFontSizeChoices[i]), on, true, true);
     }
 
-    // The user's own sizes, each with a Remove beside it. A list you can add to
-    // but not take from fills up permanently, and the only way out would be to
-    // edit the settings file.
-    if (!cfg.fontSizeCustoms.empty()) {
+    // One custom, edited in place rather than a list that grows. A list you can
+    // add to but not take from fills up permanently, and there is only ever one
+    // size in force, so the second entry in such a list is already dead weight.
+    // Not shown when the typed size happens to be one of the presets: two rows
+    // reading "13 pt" would both have to tick, and a radio group with two marks
+    // in it is a lie about what is in force.
+    if (cfg.customFontSize > 0 &&
+        !IsOneOf(kFontSizeChoices, std::size(kFontSizeChoices), cfg.customFontSize)) {
         AddSeparator(m.get());
-        // Capped at the width of its own id range, which is narrower than the
-        // general dynamic-list cap: the three font-size ranges are twenty slots
-        // apart, so a twenty-first custom size would collide with the next
-        // range and quietly become a different command.
-        const size_t n = std::min<size_t>(cfg.fontSizeCustoms.size(), kMaxFontSizes);
-        for (size_t i = 0; i < n; ++i) {
-            const double size = cfg.fontSizeCustoms[i];
-            const bool on = std::fabs(current - size) < 0.01;
-            AddText(m.get(), IDM_FONTSIZE_CUST_BASE + static_cast<UINT>(i), FontSizeLabel(size),
-                    on, true, true);
-            AddText(m.get(), IDM_FONTSIZE_DEL_BASE + static_cast<UINT>(i),
-                    L"      Remove " + FontSizeLabel(size));
-        }
+        const bool on = std::fabs(current - cfg.customFontSize) < 0.01;
+        AddText(m.get(), IDM_FONTSIZE_CUSTOM_USE, FontSizeLabel(cfg.customFontSize), on, true,
+                true);
     }
 
     AddSeparator(m.get());
-    AddText(m.get(), IDM_FONTSIZE_CUSTOM, L"Add Custom...");
+    AddText(m.get(), IDM_FONTSIZE_CUSTOM,
+            cfg.customFontSize > 0 ? L"Custom: " + FontSizeLabel(cfg.customFontSize) + L"..."
+                                   : std::wstring(L"Add Custom..."));
     AddNote(m.get(), L"Reset Strip Settings puts this back to the default");
+    return m;
+}
+
+// ------------------------------------------------------------ timeline height
+
+// Two steps either side of the built-in 24, which is kBlockHeight in
+// timeline.cpp. Named "Timeline Height" so it pairs with Timeline Width; the
+// setting behind it is blockHeight, which is the band the capsules sit in.
+const double kBlockHeightChoices[] = {16.0, 20.0, 24.0, 28.0, 32.0};
+const double kDefaultBlockHeight = 24.0;
+
+// 0 and 24 are the same band. Stored as 0 whenever the default is chosen, so
+// that Reset Strip Settings can tell a default apart from a choice; this folds
+// a hand-edited 24 back into that so the menu and the strip agree.
+double BlockHeightValue() {
+    const double h = Cfg().blockHeight;
+    if (h <= 0 || std::fabs(h - kDefaultBlockHeight) < 0.01) return 0;
+    return h;
+}
+
+std::wstring BlockHeightLabel(double px) {
+    if (px <= 0) return Format(L"Default (%g px)", kDefaultBlockHeight);
+    return Format(L"%g px", px);
+}
+
+std::wstring BlockHeightMenuTitle() {
+    const double h = BlockHeightValue();
+    return L"Timeline Height: " + (h > 0 ? Format(L"%g px", h) : std::wstring(L"Default"));
+}
+
+UniqueMenu BuildTimelineHeight() {
+    UniqueMenu m(::CreatePopupMenu());
+    const Settings& cfg = Cfg();
+    const double current = BlockHeightValue();
+
+    for (size_t i = 0; i < std::size(kBlockHeightChoices); ++i) {
+        const double px = kBlockHeightChoices[i];
+        const bool isDefault = std::fabs(px - kDefaultBlockHeight) < 0.01;
+        // The default keeps its place in the ascending order rather than being
+        // lifted to the top: the list is a scale, and a scale with one rung out
+        // of sequence is harder to read than one with a word on a rung. The
+        // row names itself "Default (24 px)" rather than "24 px (default)",
+        // which is how Text Size already reads.
+        const std::wstring label = isDefault ? BlockHeightLabel(0) : BlockHeightLabel(px);
+        const bool on = isDefault ? current <= 0 : std::fabs(current - px) < 0.01;
+        AddText(m.get(), IDM_BLOCKHEIGHT_BASE + static_cast<UINT>(i), label, on, true, true);
+    }
+
+    // Suppressed when it coincides with a preset, for the reason given under
+    // Text Size: one radio group, one mark.
+    if (cfg.customBlockHeight > 0 &&
+        !IsOneOf(kBlockHeightChoices, std::size(kBlockHeightChoices), cfg.customBlockHeight)) {
+        AddSeparator(m.get());
+        const bool on = std::fabs(current - cfg.customBlockHeight) < 0.01;
+        AddText(m.get(), IDM_BLOCKHEIGHT_CUSTOM_USE, BlockHeightLabel(cfg.customBlockHeight), on,
+                true, true);
+    }
+
+    AddSeparator(m.get());
+    AddText(m.get(), IDM_BLOCKHEIGHT_CUSTOM,
+            cfg.customBlockHeight > 0
+                ? L"Custom: " + BlockHeightLabel(cfg.customBlockHeight) + L"..."
+                : std::wstring(L"Add Custom..."));
+    AddNote(m.get(), L"The band is trimmed to fit when the taskbar is shorter than this");
     return m;
 }
 
@@ -1221,16 +1323,23 @@ UniqueMenu BuildChime() {
 
 UniqueMenu BuildStartup() {
     UniqueMenu m(::CreatePopupMenu());
+    // The registered task, not the stored flag. The task is the thing that
+    // actually starts the app, and a tick that reported the setting rather than
+    // the registration would survive the task being deleted in Task Scheduler.
     const bool on = autostart::IsEnabled();
+    const int delay = on ? autostart::DelaySeconds() : 0;
+
     AddText(m.get(), IDM_STARTUP_OFF, L"Off", !on, true, true);
-    AddText(m.get(), IDM_STARTUP_ON, L"On", on, true, true);
+    AddText(m.get(), IDM_STARTUP_ON, L"On (no delay)", on && delay <= 0, true, true);
     AddSeparator(m.get());
 
     AddNote(m.get(), L"Delay for:");
-    const int delay = Cfg().startupDelay;
     for (int i = 0; i < static_cast<int>(std::size(kStartupDelays)); ++i) {
+        // Every delay row reads unticked while startup is off, which is the
+        // honest picture: none of them is in force. Exactly one row in the
+        // submenu carries the mark at any time.
         AddText(m.get(), IDM_STARTUP_DELAY_BASE + i, Format(L"%d s", kStartupDelays[i]),
-                delay == kStartupDelays[i], true, true);
+                on && delay == kStartupDelays[i], true, true);
     }
     return m;
 }
@@ -1263,7 +1372,8 @@ UniqueMenu Build(App& app, const std::vector<DayRow>& rows) {
     AddSeparator(m.get());
 
     // 3-6: what day it is, and the simulated clock.
-    AddCaptionRow(m.get(), daylist::Caption(Clock::Now(), app.Zone(), app.SourceName()));
+    AddCaptionRow(m.get(), daylist::Caption(Clock::Now(), app.Zone(), app.SourceName()),
+                  daylist::SimulatedSuffix());
     AddText(m.get(), IDM_DEBUG_TIME, DebugTimeTitle(app.Zone()));
     if (Clock::IsSimulating()) AddText(m.get(), IDM_DEBUG_RESET, L"Reset to Current Time");
     AddSeparator(m.get());
@@ -1303,7 +1413,10 @@ UniqueMenu Build(App& app, const std::vector<DayRow>& rows) {
     if (cfg.profiles.empty()) {
         AddText(m.get(), IDM_ADD_CALENDAR, L"Add Calendar...");
     } else {
-        AddSubmenu(m.get(), BuildSavedCalendars(), L"Saved Calendars");
+        // Ticked when a saved calendar is the source, so which of the two rows
+        // is live can be read at a glance rather than by opening the submenu.
+        AddSubmenu(m.get(), BuildSavedCalendars(), L"Saved Calendars",
+                   !cfg.demoMode && !cfg.activeProfile.empty());
     }
     AddSubmenu(m.get(), BuildKeywordColors(), L"Keyword Colors");
     AddSubmenu(m.get(), BuildEndingSoonFlash(), FlashMenuTitle(), cfg.isFlashing());
@@ -1313,11 +1426,17 @@ UniqueMenu Build(App& app, const std::vector<DayRow>& rows) {
     // Strip Settings a safe click. Renamed from "Restore Strip Settings": two
     // rows in one menu both starting with "Restore" read as the same action
     // twice, and the heavier of the two is the one further down.
-    AddSubmenu(m.get(), BuildTimeRange(), L"Time Range");
-    AddSubmenu(m.get(), BuildTimelineWidth(), L"Timeline Width");
+    //
+    // Each of these titles carries the value in force, as Text Size does. The
+    // exception is Labels, which is four independent toggles and so has no one
+    // value to report.
+    AddSubmenu(m.get(), BuildTimeRange(), L"Time Range: " + TimeRangeLabel(cfg.windowMinutes));
+    AddSubmenu(m.get(), BuildTimelineWidth(),
+               Format(L"Timeline Width: %g pt", cfg.timelineWidth));
     AddSubmenu(m.get(), BuildLabels(), L"Labels");
-    AddSubmenu(m.get(), BuildLabelLength(dc), L"Label Length");
+    AddSubmenu(m.get(), BuildLabelLength(dc), Format(L"Label Length: %g pt", cfg.maxLabelWidth));
     AddSubmenu(m.get(), BuildFontSize(), FontSizeMenuTitle());
+    AddSubmenu(m.get(), BuildTimelineHeight(), BlockHeightMenuTitle());
     AddText(m.get(), IDM_RESTORE_STRIP, L"Reset Strip Settings", false,
             !cfg.isAppearanceDefault());
     AddSeparator(m.get());
@@ -1358,7 +1477,8 @@ UniqueMenu Build(App& app, const std::vector<DayRow>& rows) {
     AddSeparator(m.get());
 
     // 28-32.
-    AddSubmenu(m.get(), BuildStartup(), L"Run at Startup: " + autostart::Describe());
+    AddSubmenu(m.get(), BuildStartup(), L"Run at Startup: " + autostart::Describe(),
+               autostart::IsEnabled());
     AddSeparator(m.get());
     AddText(m.get(), IDM_RESTORE_ALL, L"Restore Defaults...", false, !cfg.isEverythingDefault());
     AddSeparator(m.get());
@@ -1391,9 +1511,19 @@ void OnMeasureItem(HWND hwnd, MEASUREITEMSTRUCT* mis) {
     int height = std::max(g_metrics.height, g_fonts.lineHeight + Scale(4));
 
     switch (item->kind) {
-        case RowKind::Caption:
+        case RowKind::Caption: {
             width += TextWidth(dc, item->text);
+            if (item->alert.empty()) break;
+            // Measured in the face it is drawn in. Bold is the wider of the
+            // two, and measuring the tail with the normal font would leave the
+            // row a few pixels short of its own text, which DT_END_ELLIPSIS
+            // then reports as a truncated warning.
+            const HGDIOBJ boldFont =
+                ::SelectObject(dc, g_fonts.bold ? g_fonts.bold : g_fonts.normal);
+            width += TextWidth(dc, item->alert);
+            ::SelectObject(dc, boldFont);
             break;
+        }
 
         case RowKind::Category:
             width += g_metrics.swatch + g_metrics.gap + TextWidth(dc, item->text) +
@@ -1455,9 +1585,21 @@ void OnDrawItem(HWND hwnd, DRAWITEMSTRUCT* dis) {
     const int pad = std::max(g_metrics.pad, Scale(4));
 
     switch (item->kind) {
-        case RowKind::Caption:
-            DrawTextAt(dc, dis->rcItem.left + pad, dis->rcItem, item->text, DimText(selected));
+        case RowKind::Caption: {
+            const int x = dis->rcItem.left + pad;
+            DrawTextAt(dc, x, dis->rcItem, item->text, DimText(selected));
+            if (item->alert.empty()) break;
+            // Two runs rather than one string: the tail is a warning and the
+            // head is context, and DrawText has one colour and one font per
+            // call. Measured with the normal font, which is what drew the head.
+            const int tailX = x + TextWidth(dc, item->text);
+            const HGDIOBJ oldFont =
+                ::SelectObject(dc, g_fonts.bold ? g_fonts.bold : g_fonts.normal);
+            DrawTextAt(dc, tailX, dis->rcItem, item->alert,
+                       selected ? ::GetSysColor(COLOR_HIGHLIGHTTEXT) : kBadgeRed);
+            ::SelectObject(dc, oldFont);
             break;
+        }
 
         case RowKind::Category: {
             const int centreY = (dis->rcItem.top + dis->rcItem.bottom) / 2;
@@ -1559,31 +1701,54 @@ bool Invoke(App& app, HWND owner, UINT id) {
             return true;
 
         case IDM_FONTSIZE_CUSTOM: {
-            double points = cfg.titleFontSize > 0 ? cfg.titleFontSize : 12.0;
+            // Prefilled with the custom already stored, so this row edits it
+            // rather than adding beside it: the dialog opens on the number the
+            // row is named after, which is the number the user wants to change.
+            double points = cfg.customFontSize > 0 ? cfg.customFontSize
+                            : cfg.titleFontSize > 0 ? cfg.titleFontSize
+                                                    : 12.0;
             if (!dialogs::NumberInput(owner, L"Text Size",
                                       L"Strip text size in points, from 6 to 48.", 6.0, 48.0,
                                       false, &points)) {
                 return true;
             }
+            cfg.customFontSize = points;
             cfg.titleFontSize = points;
-
-            // Remembered as well as applied, so it can be chosen again later
-            // without retyping. Presets are not duplicated into the list.
-            bool known = false;
-            for (double preset : kFontSizeChoices) {
-                if (std::fabs(preset - points) < 0.01) known = true;
-            }
-            for (double existing : cfg.fontSizeCustoms) {
-                if (std::fabs(existing - points) < 0.01) known = true;
-            }
-            if (!known && cfg.fontSizeCustoms.size() < kMaxFontSizes) {
-                cfg.fontSizeCustoms.push_back(points);
-                std::sort(cfg.fontSizeCustoms.begin(), cfg.fontSizeCustoms.end());
-            }
             cfg.Save();
             AfterFontChange(app);
             return true;
         }
+
+        case IDM_FONTSIZE_CUSTOM_USE:
+            if (cfg.customFontSize <= 0) return false;
+            cfg.titleFontSize = cfg.customFontSize;
+            cfg.Save();
+            AfterFontChange(app);
+            return true;
+
+        case IDM_BLOCKHEIGHT_CUSTOM: {
+            double px = cfg.customBlockHeight > 0  ? cfg.customBlockHeight
+                        : BlockHeightValue() > 0   ? BlockHeightValue()
+                                                   : kDefaultBlockHeight;
+            if (!dialogs::NumberInput(owner, L"Timeline Height",
+                                      L"Height of the coloured band in pixels, from 8 to 64.",
+                                      8.0, 64.0, false, &px)) {
+                return true;
+            }
+            cfg.customBlockHeight = px;
+            cfg.blockHeight = px;
+            // AfterAppearanceChange, not AfterFontChange: the band's height is
+            // a proportion of the strip and leaves the fonts exactly as they
+            // were, so rebuilding them would be work for no visible difference.
+            AfterAppearanceChange(app);
+            return true;
+        }
+
+        case IDM_BLOCKHEIGHT_CUSTOM_USE:
+            if (cfg.customBlockHeight <= 0) return false;
+            cfg.blockHeight = cfg.customBlockHeight;
+            AfterAppearanceChange(app);
+            return true;
 
         case IDM_FLASH_OFF:
             cfg.endingFlashSeconds = 0;
@@ -1843,7 +2008,11 @@ bool Invoke(App& app, HWND owner, UINT id) {
             return true;
 
         case IDM_STARTUP_ON:
-            SetStartup(owner, true, cfg.startupDelay);
+            // On means no delay, which is why the stored delay is replaced
+            // rather than reused. Off, On and the six delays are one radio
+            // group, and an "On" that quietly kept a twenty-second pause would
+            // leave two of those rows describing the same state.
+            SetStartup(owner, true, 0);
             return true;
 
         default:
@@ -1861,31 +2030,20 @@ bool Invoke(App& app, HWND owner, UINT id) {
     }
 
     // Upper bound is the startup-delay range, not the flash range: the delays
-    // sit between the two and would otherwise be read as font removals.
-    if (id >= IDM_FONTSIZE_DEL_BASE && id < IDM_STARTUP_DELAY_BASE) {
-        const size_t index = id - IDM_FONTSIZE_DEL_BASE;
-        if (index >= cfg.fontSizeCustoms.size()) return false;
-        const double removed = cfg.fontSizeCustoms[index];
-        cfg.fontSizeCustoms.erase(cfg.fontSizeCustoms.begin() +
-                                  static_cast<std::ptrdiff_t>(index));
-        // Removing the size currently in use falls back to the default rather
-        // than leaving the strip at a size that is no longer on the menu.
-        if (std::fabs(cfg.titleFontSize - removed) < 0.01) cfg.titleFontSize = 0;
-        cfg.Save();
-        AfterFontChange(app);
+    // sit between the two and would otherwise be read as timeline heights.
+    if (id >= IDM_BLOCKHEIGHT_BASE && id < IDM_STARTUP_DELAY_BASE) {
+        const size_t index = id - IDM_BLOCKHEIGHT_BASE;
+        if (index >= std::size(kBlockHeightChoices)) return false;
+        const double px = kBlockHeightChoices[index];
+        // The default is stored as zero rather than as 24, so that Reset Strip
+        // Settings has something to reset and the parent title can say
+        // "Default" rather than repeating a number.
+        cfg.blockHeight = std::fabs(px - kDefaultBlockHeight) < 0.01 ? 0 : px;
+        AfterAppearanceChange(app);
         return true;
     }
 
-    if (id >= IDM_FONTSIZE_CUST_BASE && id < IDM_FONTSIZE_DEL_BASE) {
-        const size_t index = id - IDM_FONTSIZE_CUST_BASE;
-        if (index >= cfg.fontSizeCustoms.size()) return false;
-        cfg.titleFontSize = cfg.fontSizeCustoms[index];
-        cfg.Save();
-        AfterFontChange(app);
-        return true;
-    }
-
-    if (id >= IDM_FONTSIZE_BASE && id < IDM_FONTSIZE_CUST_BASE) {
+    if (id >= IDM_FONTSIZE_BASE && id < IDM_BLOCKHEIGHT_BASE) {
         const size_t index = id - IDM_FONTSIZE_BASE;
         if (index >= std::size(kFontSizeChoices)) return false;
         cfg.titleFontSize = kFontSizeChoices[index];
@@ -1921,11 +2079,11 @@ bool Invoke(App& app, HWND owner, UINT id) {
     if (id >= IDM_STARTUP_DELAY_BASE && id < IDM_FLASH_BASE) {
         const size_t index = id - IDM_STARTUP_DELAY_BASE;
         if (index >= std::size(kStartupDelays)) return false;
-        cfg.startupDelay = kStartupDelays[index];
-        cfg.Save();
-        // Re-registering only matters while the task exists; changing the delay
-        // with startup off is just a stored preference.
-        if (autostart::IsEnabled()) SetStartup(owner, true, cfg.startupDelay);
+        // A delay row turns startup on as well as setting the pause. The rows
+        // are one radio group with Off and On, so picking one has to mean the
+        // state it shows -- storing a preference and leaving startup off would
+        // tick a row that is not in force.
+        SetStartup(owner, true, kStartupDelays[index]);
         return true;
     }
 

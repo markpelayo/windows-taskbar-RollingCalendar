@@ -892,9 +892,45 @@ void Timeline::Paint(HDC dc, const RECT& bounds) {
     const LONG leftWidth = im.frame.left.width;
     const LONG rightWidth = im.frame.right.width;
 
+    // The timeline gets its space before the gutters do.
+    //
+    // Measure() asks for a window wide enough for both gutters and the full
+    // timeline, and the window is normally that wide. Normally is not always:
+    // between a fetch landing and the next tick resizing the widget, the labels
+    // are already the new ones while the window is still the old size, and any
+    // path that leaves those two out of step for longer collapses the timeline
+    // to nothing. The strip then draws two overlapping labels and a now line
+    // with no blocks between them, which looks like the drawing being broken
+    // rather than the window being narrow.
+    //
+    // So the gutters are shrunk to fit instead. They are decoration; the
+    // timeline is the entire point of the widget, and a truncated label is a
+    // far better failure than an absent timeline.
+    LONG leftSpace = leftWidth;
+    LONG rightSpace = rightWidth;
+    {
+        const LONG wantTimeline = std::max<LONG>(1, Scale(Cfg().timelineWidth, dpi_));
+        const LONG minTimeline = std::min(wantTimeline, std::max<LONG>(1, width / 3));
+        const LONG gaps = (leftSpace > 0 ? gap : 0) + (rightSpace > 0 ? gap : 0);
+        LONG shortfall = (leftSpace + rightSpace + gaps + minTimeline) - width;
+        if (shortfall > 0) {
+            // Taken from each gutter in proportion to its width, so the wider
+            // label gives up more and neither is starved on behalf of the other.
+            const LONG total = leftSpace + rightSpace;
+            if (total > 0) {
+                const LONG fromLeft = std::min(leftSpace, shortfall * leftSpace / total);
+                leftSpace -= fromLeft;
+                shortfall -= fromLeft;
+                rightSpace -= std::min(rightSpace, shortfall);
+            }
+            leftSpace = std::max<LONG>(0, leftSpace);
+            rightSpace = std::max<LONG>(0, rightSpace);
+        }
+    }
+
     RECT strip = full;
-    if (leftWidth > 0) strip.left = leftWidth + gap;
-    if (rightWidth > 0) strip.right = std::max(strip.left + 1, width - rightWidth - gap);
+    if (leftSpace > 0) strip.left = leftSpace + gap;
+    if (rightSpace > 0) strip.right = std::max(strip.left + 1, width - rightSpace - gap);
 
     // The capsule band is sized to sit alongside the taskbar's icons rather
     // than to fill the bar. A block as tall as the taskbar is legible but looks
@@ -920,14 +956,22 @@ void Timeline::Paint(HDC dc, const RECT& bounds) {
     im.DrawBlocks(back, events_, strip, track, now, dark, background);
     im.DrawNowLine(back, strip, track, dark, background);
 
+    // Clipped to the space each gutter actually got, which is not necessarily
+    // the space its label wanted -- see the shrink above. DrawLabel positions
+    // runs by measured width and would otherwise write straight over the
+    // timeline.
     const COLORREF textColour = TaskbarTextColor();
-    if (leftWidth > 0) {
-        RECT area{0, 0, leftWidth, height};
+    if (leftSpace > 0) {
+        RECT area{0, 0, leftSpace, height};
+        DcStateGuard clipState(back);
+        ::IntersectClipRect(back, area.left, area.top, area.right, area.bottom);
         im.DrawLabel(back, im.frame.left, area, true,
                      (im.frame.left.shouting && im.frame.left.lit) ? kSystemRed : textColour);
     }
-    if (rightWidth > 0) {
-        RECT area{width - rightWidth, 0, width, height};
+    if (rightSpace > 0) {
+        RECT area{width - rightSpace, 0, width, height};
+        DcStateGuard clipState(back);
+        ::IntersectClipRect(back, area.left, area.top, area.right, area.bottom);
         im.DrawLabel(back, im.frame.right, area, false, textColour);
     }
 

@@ -238,19 +238,26 @@ void Settings::Load() {
     if (timelineWidth < 50) timelineWidth = 50;
     if (timelineWidth > 900) timelineWidth = 900;
 
+    // Out of range reads as "not set" rather than being clamped: unlike the
+    // width, where a wrong number still describes a strip, a text size of two
+    // points or a band of two hundred is a file that has been damaged, and the
+    // default is the honest answer to it.
+    titleFontSize = ini.Positive(L"strip", L"titleFontSize", 0);
+    if (titleFontSize < 6 || titleFontSize > 48) titleFontSize = 0;
+    customFontSize = ini.Positive(L"strip", L"customFontSize", 0);
+    if (customFontSize < 6 || customFontSize > 48) customFontSize = 0;
+
+    // Both bounded by what the Timeline Height dialog offers. Zero means the
+    // built-in height, which is what Positive() already returns for a missing
+    // or unreadable key.
+    blockHeight = ini.Positive(L"strip", L"blockHeight", 0);
+    if (blockHeight < 8 || blockHeight > 64) blockHeight = 0;
+    customBlockHeight = ini.Positive(L"strip", L"customBlockHeight", 0);
+    if (customBlockHeight < 8 || customBlockHeight > 64) customBlockHeight = 0;
+
     // ---- hidden settings -------------------------------------------------
     nowLineWidth = ini.Positive(L"hidden", L"nowLineWidth", 4);
     urgentSeconds = ini.Positive(L"hidden", L"urgentSeconds", 120);
-    // Zero is a legitimate stored value here -- it means off -- so this cannot
-    // use Positive(), which treats zero as "absent, use the default".
-    titleFontSize = ini.Positive(L"strip", L"titleFontSize", 0);
-    if (titleFontSize < 6 || titleFontSize > 48) titleFontSize = 0;
-    fontSizeCustoms.clear();
-    const int fontCustomCount = ini.Count(L"fontsize");
-    for (int i = 1; i <= fontCustomCount; ++i) {
-        const double value = ini.Positive(L"fontsize", Format(L"custom%d", i), 0);
-        if (value >= 6 && value <= 48) fontSizeCustoms.push_back(value);
-    }
     endingFlashSeconds = ini.Number(L"strip", L"endingFlashSeconds", 0);
     if (!(endingFlashSeconds > 0)) endingFlashSeconds = 0;      // also catches NaN
     if (endingFlashSeconds > 3600) endingFlashSeconds = 3600;
@@ -262,8 +269,6 @@ void Settings::Load() {
     if (hostOverride < 0 || hostOverride > 3) hostOverride = 0;
     pastFade = ini.Number(L"hidden", L"pastFade", 0);
     if (pastFade < 0.0 || pastFade >= 1.0) pastFade = 0;   // 1.0 would be pure white
-    blockHeight = ini.Number(L"hidden", L"blockHeight", 0);
-    if (blockHeight < 0.0 || blockHeight > 200.0) blockHeight = 0;
     innerGap = ini.Number(L"hidden", L"innerGap", 0);
     if (innerGap < 0.0 || innerGap > 64.0) innerGap = 0;
 
@@ -435,14 +440,9 @@ void Settings::Save() {
     AppendBool(&out, L"showNextDuration", showNextDuration);
     AppendNumber(&out, L"endingFlashSeconds", endingFlashSeconds);
     AppendNumber(&out, L"titleFontSize", titleFontSize);
-    AppendLine(&out, L"");
-
-    AppendLine(&out, L"[fontsize]");
-    AppendInt(&out, L"count", static_cast<int>(fontSizeCustoms.size()));
-    for (size_t i = 0; i < fontSizeCustoms.size(); ++i) {
-        AppendNumber(&out, Format(L"custom%d", static_cast<int>(i) + 1).c_str(),
-                     fontSizeCustoms[i]);
-    }
+    AppendNumber(&out, L"customFontSize", customFontSize);
+    AppendNumber(&out, L"blockHeight", blockHeight);
+    AppendNumber(&out, L"customBlockHeight", customBlockHeight);
     AppendLine(&out, L"");
 
     AppendLine(&out, L"[hidden]");
@@ -456,7 +456,6 @@ void Settings::Save() {
     AppendNumber(&out, L"hostOverride", hostOverride);
     AppendBool(&out, L"diagnosticLog", diagnosticLog);
     AppendNumber(&out, L"pastFade", pastFade);
-    AppendNumber(&out, L"blockHeight", blockHeight);
     AppendNumber(&out, L"innerGap", innerGap);
     AppendLine(&out, L"");
 
@@ -580,14 +579,18 @@ void Settings::RestoreStrip() {
     // "reset the strip's appearance" that left the text a different size than
     // it started would not have reset the strip's appearance.
     titleFontSize = 0;
-    fontSizeCustoms.clear();
+    customFontSize = 0;
+    // Timeline Height is geometry in the same sense the width is, so it goes
+    // back with the rest of it rather than surviving a reset of the strip.
+    blockHeight = 0;
+    customBlockHeight = 0;
     Save();
 }
 
 bool Settings::isAppearanceDefault() const {
     return windowMinutes == 120 && timelineWidth == 250 && maxLabelWidth == 360 && showNowName &&
            showNowTimeLeft && showNextName && showNextDuration && titleFontSize == 0 &&
-           fontSizeCustoms.empty();
+           customFontSize == 0 && blockHeight == 0 && customBlockHeight == 0;
 }
 
 bool Settings::isEverythingDefault() const {

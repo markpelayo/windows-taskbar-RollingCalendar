@@ -60,7 +60,15 @@ std::vector<DayRow> BuildRows(const std::vector<CalEvent>& cycle,
                               const TimeZone& zone);
 
 // "Week 35  .  Monday  .  August 24, 2026  .  Demo Calendar (test data)"
+//
+// The neutral part only. The simulated-clock marker is deliberately not
+// appended: it has to be drawn red and bold against a caption that is dim and
+// normal weight, which one string cannot express.
 std::wstring Caption(Seconds now, const TimeZone& zone, const std::wstring& sourceName);
+
+// "  .  ! Simulated !" while Debug Time is in force, otherwise empty. The
+// caller draws it as a second run after Caption's text.
+std::wstring SimulatedSuffix();
 
 // "Updated just now" / "Updated 3 minutes ago" / "Updated at 4:05:11 PM" /
 // "Refreshing..." / "Not read yet". Age uses the real clock, not the simulated

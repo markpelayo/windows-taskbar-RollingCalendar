@@ -103,6 +103,15 @@ private:
     Seconds lastFetch_ = 0;
     Seconds failingSince_ = 0;
     Seconds lastRefetch_ = 0;
+
+    // How long to wait before the next attempt. Zero once a fetch has
+    // succeeded, meaning the ordinary five-minute cadence; after a failure it
+    // starts short and doubles, because the overwhelmingly common failure is a
+    // machine that has just booted and has not finished bringing its network
+    // up. Waiting five minutes to discover the network arrived four minutes ago
+    // is the difference between a widget that works and one that appears
+    // broken every morning.
+    Seconds retryDelay_ = 0;
     unsigned long fetchToken_ = 0;
 
     int widgetWidth_ = 0;
@@ -118,6 +127,9 @@ private:
     // then the strip shows the error and the last good day underneath it.
     static constexpr Seconds kFailureGrace = 1800;
     static constexpr Seconds kRefetchInterval = 300;
+
+    // The first retry after a failure, doubling up to kRefetchInterval.
+    static constexpr Seconds kFirstRetry = 15;
 };
 
 }  // namespace rc

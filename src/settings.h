@@ -46,7 +46,7 @@ public:
     void Load();
     void Save();
     void RestoreAll();          // deletes the file and re-seeds first-run state
-    void RestoreStrip();        // the seven appearance keys only
+    void RestoreStrip();        // the appearance keys only, geometry and text
 
     // ---- strip appearance (all exposed in the menu) --------------------
     double windowMinutes = 120;   // total span, centred on now (+/- 1 hour)
@@ -62,7 +62,19 @@ public:
     // settings and onto the menu, so it resets with the rest of the strip's
     // appearance.
     double titleFontSize = 0;
-    std::vector<double> fontSizeCustoms;   // sizes the user added, removable
+
+    // The one size the user typed, kept so it can be picked again or edited
+    // without retyping. 0 means none has been typed. Deliberately a single
+    // value rather than a list: a list of sizes only ever grows, and the size
+    // in force is already shown in the submenu's own title.
+    double customFontSize = 0;
+
+    // Height of the capsule band in logical px. 0 means the built-in value,
+    // chosen to match a taskbar icon so the strip sits alongside them rather
+    // than filling the bar. On the menu as Timeline Height, so it resets with
+    // the rest of the strip's geometry.
+    double blockHeight = 0;
+    double customBlockHeight = 0;   // the one typed height, as customFontSize
 
     bool isAppearanceDefault() const;
 
@@ -107,12 +119,6 @@ public:
     // Tunable because how much fading reads as "past" depends entirely on what
     // the wallpaper behind the taskbar looks like.
     double pastFade = 0;
-
-    // Height of the capsule band in logical px. 0 means the built-in value,
-    // chosen to match a taskbar icon so the strip sits alongside them rather
-    // than filling the bar. Tunable for a taskbar that has been made larger or
-    // smaller than the default.
-    double blockHeight = 0;
 
     // Logical px between a gutter and the timeline. 0 means the built-in value.
     double innerGap = 0;

@@ -238,10 +238,18 @@ std::wstring Caption(Seconds now, const TimeZone& zone, const std::wstring& sour
                                   zone.IsoWeek(now), WeekdayName(p.weekday), MonthName(p.month),
                                   p.day, p.year, sourceName.c_str());
 
-    // Debug Time is easy to leave switched on and every other reading in the
-    // app then quietly lies, so the caption says so wherever the caption is.
-    if (Clock::IsSimulating()) caption += L"  \u00B7  Simulated";
+    // The simulated marker is not appended here. It has to be drawn in a
+    // different colour and weight from the rest of the caption, and a single
+    // string cannot say that; see SimulatedSuffix.
     return caption;
+}
+
+std::wstring SimulatedSuffix() {
+    // Debug Time is easy to leave switched on and every other reading in the
+    // app then quietly lies, so the caption says so wherever the caption is --
+    // and says it in red, because a dim grey warning is one nobody reads.
+    if (!Clock::IsSimulating()) return std::wstring();
+    return L"  \u00B7  ! Simulated !";
 }
 
 std::wstring FreshnessCaption(Seconds lastFetch, bool fetching) {

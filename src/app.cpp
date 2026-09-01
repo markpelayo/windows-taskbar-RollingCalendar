@@ -378,13 +378,25 @@ void App::OnFetchDone(FetchResult* result) {
     error_.clear();
     timeline_.SetError(L"");
     failingSince_ = 0;
+    retryDelay_ = 0;
     lastFetch_ = RealNow();
 
+    // Re-measured now rather than on the next tick. The labels have just
+    // changed -- from nothing, or from an error message, to a full day -- and
+    // until the widget is resized to match, the window is the wrong width for
+    // what is being drawn into it.
+    RelayoutNow();
     InvalidateStrip();
 }
 
 void App::ShowFailure(const std::wstring& message) {
     if (failingSince_ == 0) failingSince_ = RealNow();
+
+    // Back off rather than waiting out the full refresh interval. A failure at
+    // startup is almost always a network stack that has not finished coming up,
+    // and it resolves in seconds; the doubling is there so a genuinely
+    // unreachable feed is not hammered for half an hour.
+    retryDelay_ = (retryDelay_ <= 0) ? kFirstRetry : std::min(retryDelay_ * 2, kRefetchInterval);
 
     error_ = message;
     timeline_.SetError(message);
@@ -400,6 +412,7 @@ void App::ShowFailure(const std::wstring& message) {
         timeline_.SetEvents({});
     }
 
+    RelayoutNow();
     InvalidateStrip();
 }
 
@@ -544,7 +557,8 @@ void App::OnTick() {
     alerts::Tick(allEvents_, now, zone_);
     westminster::Tick(now, zone_);
 
-    if (RealNow() - lastRefetch_ >= kRefetchInterval) Refresh();
+    const Seconds dueIn = (retryDelay_ > 0) ? retryDelay_ : kRefetchInterval;
+    if (RealNow() - lastRefetch_ >= dueIn) Refresh();
 
     if (RealNow() - lastTooltipWrite_ >= kTooltipInterval) {
         UpdateTrayTooltip(error_.empty() ? timeline_.TooltipText(now) : error_);
